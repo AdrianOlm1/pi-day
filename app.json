@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Pi Day",
+    "slug": "pi-day",
+    "version": "1.0.0",
+    "scheme": "piday",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.adrianandsarah.piday",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used to take photos of work schedules for import.",
+        "NSPhotoLibraryUsageDescription": "Used to select photos of work schedules for import.",
+        "NSUserNotificationsUsageDescription": "Used to send daily to-do reminders."
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#3B82F6"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pi Day needs access to your photos to import work schedules.",
+          "cameraPermission": "Pi Day needs your camera to photograph work schedules."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
