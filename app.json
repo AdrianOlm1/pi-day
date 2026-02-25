@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "Pi Day",
+    "name": "Sarian",
     "slug": "pi-day",
-    "version": "1.0.0",
-    "scheme": "piday",
+    "version": "1.0.1",
+    "scheme": "pidayapp",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.adrianandsarah.piday",
+      "bundleIdentifier": "com.adrianandsarah.pidayapp",
       "infoPlist": {
         "NSCameraUsageDescription": "Used to take photos of work schedules for import.",
         "NSPhotoLibraryUsageDescription": "Used to select photos of work schedules for import.",
@@ -35,8 +35,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Pi Day needs access to your photos to import work schedules.",
-          "cameraPermission": "Pi Day needs your camera to photograph work schedules."
+          "photosPermission": "Sarian needs access to your photos to import work schedules.",
+          "cameraPermission": "Sarian needs your camera to photograph work schedules."
         }
       ]
     ],

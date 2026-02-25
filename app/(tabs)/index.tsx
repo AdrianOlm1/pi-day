@@ -219,7 +219,7 @@ export default function TodayScreen() {
   const appColors = useAppColors();
   const router = useRouter();
   const { getOccurrencesByRange, loading: evLoading, refresh: refreshEvents } = useEvents();
-  const { todos, addTodo, toggle, remove, refresh: refreshTodos } = useTodos();
+  const { todos, addTodo, toggle, remove, reorder, refresh: refreshTodos } = useTodos();
   const { orders, refresh: refreshOrders } = useOrders();
   const { temp, weatherCode, loading: weatherLoading } = useWeather();
   const [showSettings, setShowSettings] = useState(false);
@@ -356,6 +356,7 @@ export default function TodayScreen() {
                 onAdd={(title) => addTodo(userId, title, todayKey)}
                 onToggle={(id, done) => { playCheck(); toggle(id, done); }}
                 onRemove={remove}
+                onReorder={reorder}
                 showAddInput={false}
                 hideSectionHeader
               />

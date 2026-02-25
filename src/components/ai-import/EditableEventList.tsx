@@ -22,6 +22,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, parseISO, set as dateFnsSet } from 'date-fns';
 import type { ParsedShift, ImportEventType } from '@/types';
 import { Button } from '@/components/ui/Button';
+import { playTrash } from '@/utils/sounds';
 import { spacing, typography, colors, radius, shadows } from '@/theme';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -462,6 +463,7 @@ export function EditableEventList({
   }, [events, onEventsChange]);
 
   const deleteEvent = useCallback((id: string) => {
+    playTrash();
     onEventsChange(events.filter(e => e._id !== id));
   }, [events, onEventsChange]);
 

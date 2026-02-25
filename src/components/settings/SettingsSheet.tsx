@@ -228,7 +228,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const insets = useSafeAreaInsets();
   const { activeTheme, setThemeId, fontSizeScale, setFontSizeScale, getUserName } = useTheme();
   const { userColor, userId } = useUserMode();
-  const { pair, role, generateClaimCode } = usePairing();
+  const { pair, role, generateClaimCode, unpair } = usePairing();
   const [claimCode, setClaimCode]     = useState<string | null>(null);
   const [claimLoading, setClaimLoading] = useState(false);
   const topInset = Platform.OS === 'ios' ? 10 : Math.max(insets.top, 10);
@@ -408,6 +408,30 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                     }
                   </Pressable>
                 )}
+
+                {/* Reset pairing — show pairing screen again and get a new code for Sarah */}
+                <View style={[s.sep, { backgroundColor: appColors.separator }]} />
+                <Pressable
+                  onPress={() => {
+                    Alert.alert(
+                      'Reset pairing?',
+                      "You'll see the setup screen again. Tap \"I am the owner\" to get a new code for Sarah.",
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Reset', style: 'destructive', onPress: () => { onClose(); unpair(); } },
+                      ]
+                    );
+                  }}
+                  style={[s.aboutRow, s.replaceDeviceRow]}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={[s.replaceDeviceIconWrap, { backgroundColor: hexToRgba('#EF4444', 0.12) }]}>
+                      <Ionicons name="link-outline" size={18} color="#EF4444" />
+                    </View>
+                    <Text style={[s.aboutLabel, { color: appColors.labelSecondary }]}>Reset pairing</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={appColors.labelTertiary} />
+                </Pressable>
               </GlassCard>
             </View>
 
@@ -416,7 +440,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
               <SectionHeader title="About" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
               <GlassCard style={s.cardMargin}>
                 <View style={s.aboutRow}>
-                  <Text style={[s.aboutLabel, { color: appColors.label }]}>Pi Day</Text>
+                  <Text style={[s.aboutLabel, { color: appColors.label }]}>Sarian</Text>
                   <Text style={[s.aboutVersion, { color: appColors.labelTertiary }]}>v1.0.0</Text>
                 </View>
                 <View style={[s.sep, { backgroundColor: appColors.separator }]} />

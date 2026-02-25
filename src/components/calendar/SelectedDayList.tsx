@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
   wrapper: { flex: 1, minHeight: 120 },
   dateHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl, paddingVertical: spacing.sm,
     borderBottomWidth: 1.5,
   },
   dateLeft: { gap: 2 },

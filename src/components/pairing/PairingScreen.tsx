@@ -91,7 +91,7 @@ export default function PairingScreen() {
           <View style={[s.logo, { backgroundColor: accent + '18' }]}>
             <Text style={s.logoEmoji}>π</Text>
           </View>
-          <Text style={s.heading}>Welcome to Pi Day</Text>
+          <Text style={s.heading}>Welcome to Sarian</Text>
           <Text style={s.sub}>
             This app is shared between two people.{'\n'}
             Set up your connection to get started.

@@ -326,6 +326,7 @@ export default function CalendarScreen() {
     setCalendarCollapsed(false);
     Animated.timing(collapseAnim, { toValue: 0, duration: 0, useNativeDriver: false }).start();
   }, [viewMode]);
+
   const fabPressIn = () => Animated.spring(fabScale, { toValue: 0.90, useNativeDriver: true, damping: 20, stiffness: 400 }).start();
   const fabPressOut = () => Animated.spring(fabScale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 280 }).start();
 
@@ -384,8 +385,8 @@ export default function CalendarScreen() {
         onPanResponderTerminationRequest: () => true,
         onPanResponderRelease: (_, gestureState) => {
           const { dx } = gestureState;
-          if (dx < -40) setSelectedDate(addDays(selectedDate, 7));
-          else if (dx > 40) setSelectedDate(subDays(selectedDate, 7));
+          if (dx < -40) setSelectedDate(addDays(selectedDate, 1));
+          else if (dx > 40) setSelectedDate(subDays(selectedDate, 1));
         },
       }),
     [selectedDate]
@@ -415,7 +416,7 @@ export default function CalendarScreen() {
       const next = subMonths(currentDate, 1);
       setCurrentDate(next);
       setSelectedDate(startOfMonth(next));
-    } else setSelectedDate(subDays(selectedDate, 7));
+    } else setSelectedDate(subDays(selectedDate, 1));
   }
   function navigateNext() {
     if (viewMode === 'month') {
@@ -423,7 +424,7 @@ export default function CalendarScreen() {
       const next = addMonths(currentDate, 1);
       setCurrentDate(next);
       setSelectedDate(startOfMonth(next));
-    } else setSelectedDate(addDays(selectedDate, 7));
+    } else setSelectedDate(addDays(selectedDate, 1));
   }
   function goToday() {
     const t = new Date();
@@ -585,6 +586,14 @@ export default function CalendarScreen() {
                 accentColor={userColor}
                 onEventPress={(ev) => setSelectedEvent(ev)}
                 onScroll={handleContentScroll}
+                onRequestExpandStrip={
+                  calendarCollapsed
+                    ? () => {
+                        setCalendarCollapsed(false);
+                        Animated.timing(collapseAnim, { toValue: 0, duration: 220, useNativeDriver: false }).start();
+                      }
+                    : undefined
+                }
               />
             </View>
           )}

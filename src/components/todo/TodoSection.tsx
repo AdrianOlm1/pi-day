@@ -6,6 +6,7 @@ import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { Ionicons } from '@expo/vector-icons';
 import type { Todo, TodoOwner } from '@/types';
 import { formatTime } from '@/utils/date';
+import { playTrash } from '@/utils/sounds';
 import { useAppColors } from '@/contexts/ThemeContext';
 import { spacing, typography, radius, shadows } from '@/theme';
 
@@ -31,9 +32,11 @@ interface TodoSectionProps {
   showAddInput?: boolean;
   /** When true, omit the header (label + meta); no separator is shown. */
   hideSectionHeader?: boolean;
+  /** When set, tasks can be reordered by long-press and drag. New order is reported here. */
+  onReorder?: (orderedTodos: Todo[]) => void;
 }
 
-export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRemove, showAddInput = true, hideSectionHeader = false }: TodoSectionProps) {
+export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRemove, showAddInput = true, hideSectionHeader = false, onReorder }: TodoSectionProps) {
   const appColors = useAppColors();
   const [inputText, setInputText] = useState('');
   const [inputFocused, setInputFocused] = useState(false);
@@ -80,7 +83,7 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
               onRemove={() =>
                 Alert.alert('Remove item', 'Delete this task?', [
                   { text: 'Cancel', style: 'cancel' },
-                  { text: 'Delete', style: 'destructive', onPress: () => onRemove(todo.id) },
+                  { text: 'Delete', style: 'destructive', onPress: () => { playTrash(); onRemove(todo.id); } },
                 ])
               }
             />
@@ -116,9 +119,10 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
 }
 
 function TodoRow({
-  todo, color, appColors, onToggle, onRemove, showDivider,
+  todo, color, appColors, onToggle, onRemove, showDivider, onLongPress, isDragging,
 }: {
   todo: Todo; color: string; appColors: ReturnType<typeof useAppColors>; onToggle: () => void; onRemove: () => void; showDivider: boolean;
+  onLongPress?: () => void; isDragging?: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const checkScale = useRef(new Animated.Value(todo.done ? 1 : 0)).current;
@@ -138,8 +142,15 @@ function TodoRow({
     onToggle();
   }
 
-  return (
-    <Animated.View style={[styles.item, showDivider && [styles.itemDivider, { borderBottomColor: appColors.separator }], { transform: [{ scale }] }]}>
+  const rowStyle = [
+    styles.item,
+    showDivider && [styles.itemDivider, { borderBottomColor: appColors.separator }],
+    { transform: [{ scale }] },
+    isDragging && { opacity: 0.9, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+  ];
+
+  const rowContent = (
+    <>
       <Pressable onPress={handleToggle} style={styles.checkboxWrap} hitSlop={10}>
         <View style={[styles.checkbox, { borderColor: appColors.labelTertiary }, todo.done && { backgroundColor: color, borderColor: color }]}>
           <Animated.View style={{ transform: [{ scale: checkScale }] }}>
@@ -163,8 +174,20 @@ function TodoRow({
       <Pressable onPress={onRemove} style={styles.deleteBtn} hitSlop={14}>
         <Ionicons name="close" size={16} color={appColors.labelTertiary} />
       </Pressable>
-    </Animated.View>
+    </>
   );
+
+  if (onLongPress) {
+    return (
+      <Pressable onLongPress={onLongPress} delayLongPress={400} style={{ flex: 1 }}>
+        <Animated.View style={rowStyle}>
+          {rowContent}
+        </Animated.View>
+      </Pressable>
+    );
+  }
+
+  return <Animated.View style={rowStyle}>{rowContent}</Animated.View>;
 }
 
 const styles = StyleSheet.create({

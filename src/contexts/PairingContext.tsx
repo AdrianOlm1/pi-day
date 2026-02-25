@@ -41,6 +41,8 @@ interface PairingContextValue {
   claimDevice: (code: string) => Promise<void>;
   /** Force re-check pairing status (e.g. after background app resume) */
   refresh: () => Promise<void>;
+  /** Clear device ID and pairing cache; show pairing screen again (e.g. to get a new code for Sarah) */
+  unpair: () => Promise<void>;
 }
 
 const PairingContext = createContext<PairingContextValue | null>(null);
@@ -73,22 +75,23 @@ export function PairingProvider({ children }: { children: React.ReactNode }) {
         setRole(result.role);
         setState('paired');
       } else {
-        // TODO: show PairingScreen once pairing is fully set up.
-        // For now, default to 'adrian' so the app is accessible during development.
-        setRole('adrian');
-        setState('paired');
+        setRole(null);
+        setPair(null);
+        setState('unpaired');
       }
     } catch {
-      // Network error — fall back to cached role or default to 'adrian'
+      // Network error — fall back to cached role so already-paired users can open the app offline
       const cachedRole = await AsyncStorage.getItem('piday_cached_role');
       const cachedPair = await AsyncStorage.getItem('piday_cached_pair');
       if (cachedRole === 'adrian' || cachedRole === 'sarah') {
         setRole(cachedRole);
         setPair(cachedPair ? JSON.parse(cachedPair) : null);
+        setState('paired');
       } else {
-        setRole('adrian');
+        setRole(null);
+        setPair(null);
+        setState('unpaired');
       }
-      setState('paired');
     }
   }, []);
 
@@ -140,6 +143,16 @@ export function PairingProvider({ children }: { children: React.ReactNode }) {
     if (deviceId) await checkPairing(deviceId);
   }, [deviceId, checkPairing]);
 
+  const unpair = useCallback(async () => {
+    await AsyncStorage.multiRemove([DEVICE_ID_KEY, 'piday_cached_role', 'piday_cached_pair']);
+    const freshId = await Crypto.randomUUID();
+    await AsyncStorage.setItem(DEVICE_ID_KEY, freshId);
+    setDeviceId(freshId);
+    setPair(null);
+    setRole(null);
+    setState('unpaired');
+  }, []);
+
   return (
     <PairingContext.Provider value={{
       state, deviceId, role, pair,
@@ -148,6 +161,7 @@ export function PairingProvider({ children }: { children: React.ReactNode }) {
       generateClaimCode: handleGenerateClaimCode,
       claimDevice: handleClaimDevice,
       refresh,
+      unpair,
     }}>
       {children}
     </PairingContext.Provider>

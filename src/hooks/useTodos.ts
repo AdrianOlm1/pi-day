@@ -63,6 +63,22 @@ export function useTodos() {
     await load();
   }, [load]);
 
+  const reorder = useCallback(
+    async (orderedTodos: Todo[]) => {
+      if (orderedTodos.length === 0) return;
+      const sortedOrders = [...orderedTodos]
+        .map((t) => t.sort_order)
+        .sort((a, b) => a - b);
+      await Promise.all(
+        orderedTodos.map((todo, i) =>
+          updateTodo(todo.id, { sort_order: sortedOrders[i] }),
+        ),
+      );
+      await load();
+    },
+    [load],
+  );
+
   const todosByOwner = (owner: TodoOwner) => todos.filter((t) => t.owner === owner);
 
   return {
@@ -73,6 +89,7 @@ export function useTodos() {
     addTodo,
     toggle,
     remove,
+    reorder,
     todosByOwner,
   };
 }

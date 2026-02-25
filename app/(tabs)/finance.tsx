@@ -16,6 +16,7 @@ import { useAppColors } from '@/contexts/ThemeContext';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useAccounts, useTransactions, useFinanceCategories, useBudgets } from '@/hooks/useFinance';
 import * as FinanceService from '@/services/finance';
+import { playTrash } from '@/utils/sounds';
 import { parseCSV } from '@/services/csvImport';
 import { categorizeAll } from '@/services/aiCategorize';
 import { spacing, typography, radius, shadows, colors } from '@/theme';
@@ -272,6 +273,7 @@ function TxnDetailModal({ txn, categories, onClose, onCategorize, onDelete }: {
     Alert.alert('Delete', `Delete "${txn!.title}"?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
+        playTrash();
         setSaving(true);
         try { await onDelete(txn!.id); onClose(); } finally { setSaving(false); }
       }},

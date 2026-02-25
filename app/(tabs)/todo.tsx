@@ -26,6 +26,7 @@ import {
   scheduleGoalStreakReminders,
 } from '@/services/notifications';
 import { isMilestone, nextMilestone, MILESTONES } from '@/services/goals';
+import { playTrash } from '@/utils/sounds';
 import { spacing, typography, colors, radius, shadows } from '@/theme';
 import type { GoalPeriodType, Goal, UserId } from '@/types';
 
@@ -1344,6 +1345,7 @@ export default function HabitsScreen() {
     Alert.alert('Delete habit', `Delete "${goal.title}"? Your streak will be lost.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
+        playTrash();
         await cancelGoalReminder(goal.id);
         await cancelGoalStreakReminder(goal.id);
         await remove(goal.id);

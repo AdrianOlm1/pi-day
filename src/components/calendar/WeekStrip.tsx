@@ -1,14 +1,11 @@
 import React, { useRef } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, Dimensions, Animated } from 'react-native';
+import { View, Pressable, StyleSheet, Animated } from 'react-native';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { format } from 'date-fns';
 import { getWeekDays, isSameDay, formatDate } from '@/utils/date';
 import type { EventOccurrence } from '@/types';
 import { spacing, typography, radius } from '@/theme';
 import { useAppColors } from '@/contexts/ThemeContext';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const DAY_WIDTH = Math.floor((SCREEN_WIDTH - spacing.lg * 2) / 7);
 
 interface WeekStripProps {
   selectedDate: Date;
@@ -56,7 +53,7 @@ function DayPill({ day, events, isSelected, isToday, accentColor, onSelectDate, 
   const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 300 }).start();
 
   return (
-    <Pressable onPress={() => onSelectDate(day)} onPressIn={onPressIn} onPressOut={onPressOut} style={{ flex: 1, alignItems: 'center' }}>
+    <Pressable onPress={() => onSelectDate(day)} onPressIn={onPressIn} onPressOut={onPressOut} style={styles.dayCell}>
       <Animated.View style={[
         styles.pill,
         isSelected && { backgroundColor: accentColor },
@@ -88,11 +85,18 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  dayCell: {
+    flex: 1,
+    alignItems: 'center',
+    minWidth: 0,
+  },
   pill: {
-    alignItems: 'center', justifyContent: 'center',
-    paddingVertical: spacing.sm, paddingHorizontal: spacing.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
     borderRadius: radius.md,
-    width: DAY_WIDTH - 4,
+    width: '100%',
     minHeight: 70,
     gap: 2,
   },

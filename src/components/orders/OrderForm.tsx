@@ -70,7 +70,7 @@ export function OrderForm({ initial, onSave, onCancel, accentColor = '#6366F1' }
         placeholder="Color, size, special requests…" multiline numberOfLines={3}
         style={{ minHeight: 70 }} accentColor={accentColor} />
       <TextInput label="Total (optional)" value={total} onChangeText={setTotal}
-        placeholder="$25.00" keyboardType="decimal-pad" accentColor={accentColor} />
+        placeholder="25.00" keyboardType="decimal-pad" prefix="$" accentColor={accentColor} />
       <Text style={styles.sectionLabel}>Due date (optional)</Text>
       <Pressable
         onPress={() => setShowCalendar(true)}

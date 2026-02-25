@@ -31,7 +31,7 @@ export function useWeather(): WeatherState & { refresh: () => void } {
 
   const fetchWeather = useCallback(async (lat: number, lon: number) => {
     try {
-      const url = `${OPEN_METEO}?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code`;
+      const url = `${OPEN_METEO}?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&temperature_unit=fahrenheit`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('Weather unavailable');
       const data = await res.json();

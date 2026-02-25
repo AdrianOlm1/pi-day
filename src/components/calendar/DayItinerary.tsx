@@ -18,8 +18,8 @@ const USER_DISPLAY_NAMES: Record<UserId, string> = {
 const DEFAULT_START_HOUR = 6;
 const END_HOUR = 24;
 const MINUTES_PER_DAY = 24 * 60;
-const PIXELS_PER_HOUR = 52;
-const MIN_EVENT_HEIGHT_PX = 36;
+const PIXELS_PER_HOUR = 38;
+const MIN_EVENT_HEIGHT_PX = 28;
 
 /** Minutes from midnight (0–1440) for an ISO datetime on the given date. */
 function getMinutesInDay(iso: string, dateStr: string): number {
@@ -358,15 +358,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     borderBottomWidth: 2,
   },
-  columnDot: { width: 8, height: 8, borderRadius: 4 },
-  columnTitle: { ...typography.subhead, fontWeight: '700' },
+  columnDot: { width: 6, height: 6, borderRadius: 3 },
+  columnTitle: { ...typography.caption, fontWeight: '700' },
   allDayRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     paddingHorizontal: spacing.xs,
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: spacing.sm,
@@ -374,7 +374,7 @@ const styles = StyleSheet.create({
   timeRulerCell: { width: TIME_RULER_WIDTH, paddingTop: 2 },
   timeLabel: { ...typography.caption, fontWeight: '600' },
   allDayColumn: { flex: 1, gap: spacing.sm },
-  sharedAllDayRow: { paddingVertical: spacing.sm },
+  sharedAllDayRow: { paddingVertical: spacing.xs },
   sharedAllDayColumn: { flex: 1, gap: spacing.sm, marginLeft: spacing.xs },
   columnDivider: { width: StyleSheet.hairlineWidth },
   timelineScroll: { flex: 1 },
@@ -434,16 +434,16 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...shadows.sm,
   },
-  blockStripe: { width: 4 },
-  blockBody: { flex: 1, padding: spacing.sm, gap: 2 },
+  blockStripe: { width: 3 },
+  blockBody: { flex: 1, padding: spacing.xs, gap: 1 },
   typePill: {
     alignSelf: 'flex-start',
     borderRadius: radius.full,
     paddingHorizontal: spacing.xs,
-    paddingVertical: 2,
+    paddingVertical: 1,
   },
-  typeText: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
-  blockTitle: { ...typography.footnote, fontWeight: '600' },
-  blockTime: { fontSize: 11 },
-  blockNotes: { fontSize: 10, marginTop: 2 },
+  typeText: { fontSize: 8, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
+  blockTitle: { ...typography.caption, fontWeight: '600' },
+  blockTime: { fontSize: 10 },
+  blockNotes: { fontSize: 9, marginTop: 1 },
 });

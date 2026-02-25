@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ScrollView, StyleSheet } from 'react-native';
+import { View, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { format } from 'date-fns';
 import { isSameDay } from '@/utils/date';
@@ -14,6 +14,8 @@ interface DayViewProps {
   accentColor?: string;
   onEventPress?: (ev: EventOccurrence) => void;
   onScroll?: (e: { nativeEvent: { contentOffset: { y: number } } }) => void;
+  /** When provided and day has no events, tapping the empty area calls this (e.g. to expand the week strip). */
+  onRequestExpandStrip?: () => void;
 }
 
 export function DayView({
@@ -22,6 +24,7 @@ export function DayView({
   accentColor: accentProp,
   onEventPress,
   onScroll,
+  onRequestExpandStrip,
 }: DayViewProps) {
   const appColors = useAppColors();
   const accentColor = accentProp ?? appColors.gradientFrom;
@@ -31,11 +34,14 @@ export function DayView({
 
   return (
     <View style={styles.dayPage}>
-      <View style={[
-        styles.dateHeader,
-        { backgroundColor: appColors.surface, borderBottomColor: appColors.separator },
-        isToday && { borderBottomColor: accentColor + '30' },
-      ]}>
+      <Pressable
+        style={[
+          styles.dateHeader,
+          { backgroundColor: appColors.surface, borderBottomColor: appColors.separator },
+          isToday && { borderBottomColor: accentColor + '30' },
+        ]}
+        onPress={events.length === 0 ? onRequestExpandStrip : undefined}
+      >
         <View style={styles.dateLeft}>
           <Text style={[styles.dayName, { color: appColors.label }, isToday && { color: accentColor }]}>
             {format(selectedDate, 'EEEE')}
@@ -47,14 +53,21 @@ export function DayView({
             <Text style={styles.todayText}>Today</Text>
           </View>
         )}
-      </View>
+      </Pressable>
 
       <View style={styles.eventsList}>
         {events.length === 0 ? (
-          <View style={styles.emptyWrap}>
-            <Text style={[styles.empty, { color: appColors.labelSecondary }]}>No events</Text>
-            <Text style={[styles.emptySub, { color: appColors.labelTertiary }]}>Enjoy your free time</Text>
-          </View>
+          <Pressable
+            style={styles.emptyContainer}
+            onPress={onRequestExpandStrip}
+          >
+            <View style={styles.emptyWrap}>
+              <Text style={[styles.empty, { color: appColors.labelSecondary }]}>No events</Text>
+              <Text style={[styles.emptySub, { color: appColors.labelTertiary }]}>
+                {onRequestExpandStrip ? 'Tap to show week' : 'Enjoy your free time'}
+              </Text>
+            </View>
+          </Pressable>
         ) : (
           <ScrollView
             style={styles.itineraryScroll}
@@ -80,7 +93,7 @@ const styles = StyleSheet.create({
   dayPage: { flex: 1 },
   dateHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl, paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
     borderBottomWidth: 1.5,
   },
   dateLeft: { gap: 2 },
@@ -91,6 +104,7 @@ const styles = StyleSheet.create({
   eventsList: { padding: spacing.lg, flex: 1 },
   itineraryScroll: { flex: 1 },
   itineraryScrollContent: { flexGrow: 1, paddingBottom: spacing.xl },
+  emptyContainer: { flex: 1, justifyContent: 'center' },
   emptyWrap: { alignItems: 'center', paddingTop: 60 },
   empty: { ...typography.callout },
   emptySub: { ...typography.body, marginTop: spacing.xs },
