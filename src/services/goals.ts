@@ -12,36 +12,44 @@ function normalizeGoal(row: any): Goal {
     ...row,
     emoji:           row.emoji           ?? '',
     stake:           row.stake           ?? null,
+    active_days:     row.active_days     ?? null,
+    metric_target:   row.metric_target   ?? null,
+    metric_unit:     row.metric_unit     ?? null,
     current_streak:  row.current_streak  ?? 0,
     longest_streak:  row.longest_streak  ?? 0,
     last_checked_in: row.last_checked_in ?? null,
   };
 }
 
+// ─── period key (exported for metric logging) ───────────────────────────────
+
+/** Get the period key for a date (daily = YYYY-MM-DD, weekly = Monday, monthly = YYYY-MM-01). */
+export function getPeriodKey(d: Date, period: GoalPeriodType): string {
+  if (period === 'daily') return d.toISOString().slice(0, 10);
+  if (period === 'weekly') {
+    const dow = d.getDay(); // 0=Sun
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - ((dow + 6) % 7));
+    return mon.toISOString().slice(0, 10);
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
 // ─── streak math (pure, exported for tests) ───────────────────────────────────
 
+const toMidnight = (s: string): Date => {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+};
+
 /**
- * Given a sorted-DESCENDING list of YYYY-MM-DD strings,
+ * Given a sorted-DESCENDING list of YYYY-MM-DD strings (period keys),
  * return the current consecutive streak in `period` units.
  */
 export function calcStreak(dates: string[], period: GoalPeriodType): number {
   if (dates.length === 0) return 0;
 
-  const toMidnight = (s: string): Date => {
-    const [y, m, d] = s.split('-').map(Number);
-    return new Date(y, m - 1, d, 0, 0, 0, 0);
-  };
-
-  const periodKey = (d: Date): string => {
-    if (period === 'daily') return d.toISOString().slice(0, 10);
-    if (period === 'weekly') {
-      const dow = d.getDay(); // 0=Sun
-      const mon = new Date(d);
-      mon.setDate(d.getDate() - ((dow + 6) % 7));
-      return mon.toISOString().slice(0, 10);
-    }
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-  };
+  const periodKey = (d: Date): string => getPeriodKey(d, period);
 
   const prevPeriod = (d: Date): Date => {
     const r = new Date(d);
@@ -116,6 +124,9 @@ export async function createGoal(
       reminder_enabled: goal.reminder_enabled,
       emoji:            goal.emoji ?? '',
       stake:            goal.stake ?? null,
+      active_days:      goal.active_days ?? null,
+      metric_target:    goal.metric_target ?? null,
+      metric_unit:      goal.metric_unit ?? null,
       current_streak:   0,
       longest_streak:   0,
     })
@@ -146,11 +157,11 @@ export async function deleteGoal(id: string): Promise<void> {
 
 // ─── completions ──────────────────────────────────────────────────────────────
 
-/** Fetch the last 120 days of completions for a list of habit ids */
+/** Fetch the last 400 days of completions (covers ~57 weeks / 13 months for metric goals) */
 export async function fetchCompletions(habitIds: string[]): Promise<HabitCompletion[]> {
   if (habitIds.length === 0) return [];
   const since = new Date();
-  since.setDate(since.getDate() - 120);
+  since.setDate(since.getDate() - 400);
   const sinceStr = since.toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from('habit_completions')
@@ -159,7 +170,7 @@ export async function fetchCompletions(habitIds: string[]): Promise<HabitComplet
     .gte('date', sinceStr)
     .order('date', { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map((r: any) => ({ ...r, amount: r.amount != null ? Number(r.amount) : null }));
 }
 
 /** Check in for today — idempotent (upsert). Returns true if this was a NEW check-in. */
@@ -216,6 +227,134 @@ export async function checkInHabit(
   if (updateError) throw updateError;
 
   return { isNew: true, newStreak, isMilestoneHit: isMilestone(newStreak) };
+}
+
+/** Log progress for a metric goal (add to current period total). Period = day/week/month by goal type. */
+export async function logMetricProgress(
+  habitId: string,
+  owner: UserId,
+  amountToAdd: number,
+  periodType: GoalPeriodType,
+  metricTarget: number,
+  currentLongest: number,
+): Promise<{ newTotal: number; achieved: boolean; newStreak: number; isMilestoneHit: boolean }> {
+  const now = new Date();
+  const periodKey = getPeriodKey(now, periodType);
+
+  const { data: existing } = await supabase
+    .from('habit_completions')
+    .select('id, amount')
+    .eq('habit_id', habitId)
+    .eq('owner', owner)
+    .eq('date', periodKey)
+    .maybeSingle();
+
+  const prevAmount = existing?.amount != null ? Number(existing.amount) : 0;
+  const newTotal = prevAmount + amountToAdd;
+
+  if (existing) {
+    const { error: updateErr } = await supabase
+      .from('habit_completions')
+      .update({ amount: newTotal })
+      .eq('id', existing.id);
+    if (updateErr) throw updateErr;
+  } else {
+    const { error: insertErr } = await supabase
+      .from('habit_completions')
+      .insert({ habit_id: habitId, owner, date: periodKey, amount: newTotal });
+    if (insertErr) throw insertErr;
+  }
+
+  // Recompute streak: completed periods = rows where amount >= target
+  const since = new Date();
+  since.setDate(since.getDate() - 400);
+  const sinceStr = since.toISOString().slice(0, 10);
+  const { data: rows, error: selectError } = await supabase
+    .from('habit_completions')
+    .select('date, amount')
+    .eq('habit_id', habitId)
+    .eq('owner', owner)
+    .gte('date', sinceStr)
+    .order('date', { ascending: false });
+
+  if (selectError) throw selectError;
+
+  const completedPeriodKeys = (rows ?? [])
+    .filter((r: any) => (r.amount != null ? Number(r.amount) : 0) >= metricTarget)
+    .map((r: any) => r.date as string);
+  const uniqueKeys = [...new Set(completedPeriodKeys)];
+  uniqueKeys.sort((a, b) => b.localeCompare(a));
+  const newStreak = calcStreak(uniqueKeys, periodType);
+  const newLongest = Math.max(newStreak, currentLongest);
+  const achieved = newTotal >= metricTarget;
+
+  const goalUpdates: Record<string, unknown> = {
+    current_streak: newStreak,
+    longest_streak: newLongest,
+    updated_at: now.toISOString(),
+  };
+  if (achieved) goalUpdates.last_checked_in = periodKey;
+
+  const { error: goalErr } = await supabase
+    .from('goals')
+    .update(goalUpdates)
+    .eq('id', habitId);
+  if (goalErr) throw goalErr;
+
+  return {
+    newTotal,
+    achieved,
+    newStreak,
+    isMilestoneHit: achieved && isMilestone(newStreak),
+  };
+}
+
+/** Reset current period progress for a metric goal. */
+export async function resetMetricPeriod(
+  habitId: string,
+  owner: UserId,
+  periodType: GoalPeriodType,
+  metricTarget: number,
+  currentLongest: number,
+): Promise<void> {
+  const periodKey = getPeriodKey(new Date(), periodType);
+
+  await supabase
+    .from('habit_completions')
+    .delete()
+    .eq('habit_id', habitId)
+    .eq('owner', owner)
+    .eq('date', periodKey);
+
+  const since = new Date();
+  since.setDate(since.getDate() - 400);
+  const sinceStr = since.toISOString().slice(0, 10);
+  const { data: rows, error: selectError } = await supabase
+    .from('habit_completions')
+    .select('date, amount')
+    .eq('habit_id', habitId)
+    .eq('owner', owner)
+    .gte('date', sinceStr)
+    .order('date', { ascending: false });
+
+  if (selectError) throw selectError;
+
+  const completedPeriodKeys = (rows ?? [])
+    .filter((r: any) => (r.amount != null ? Number(r.amount) : 0) >= metricTarget)
+    .map((r: any) => r.date as string);
+  const uniqueKeys = [...new Set(completedPeriodKeys)];
+  uniqueKeys.sort((a, b) => b.localeCompare(a));
+  const newStreak = calcStreak(uniqueKeys, periodType);
+  const lastDate = uniqueKeys[0] ?? null;
+
+  await supabase
+    .from('goals')
+    .update({
+      current_streak: newStreak,
+      last_checked_in: lastDate,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', habitId);
 }
 
 /** Undo today's check-in */

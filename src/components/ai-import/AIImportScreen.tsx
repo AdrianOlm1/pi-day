@@ -24,6 +24,7 @@ import type { EditableEvent } from '@/components/ai-import/EditableEventList';
 import { UserToggle } from '@/components/ui/UserToggle';
 import { Button } from '@/components/ui/Button';
 import type { ImportSourceType } from '@/types';
+import { EVENT_TYPE_COLORS } from '@/utils/colors';
 import { spacing, typography, colors, radius, shadows } from '@/theme';
 
 type Step = 'pick' | 'parsing' | 'confirm' | 'saving' | 'done';
@@ -259,7 +260,7 @@ const done = StyleSheet.create({
 // ─── AIImportScreen ───────────────────────────────────────────────────────────
 
 export interface AIImportScreenProps {
-  /** When true: shows × close button instead of UserToggle */
+  /** When true: shows × close button in header */
   isModal?: boolean;
   /** Called when × is pressed (modal mode) */
   onClose?: () => void;
@@ -359,10 +360,12 @@ export function AIImportScreen({ isModal = false, onClose }: AIImportScreenProps
     try {
       const dbEvents = selected.map(s => {
         const all_day = s.all_day ?? false;
+        const type = (s.event_type ?? (sourceType === 'schedule' ? 'work' : 'personal')) as any;
+        const color = EVENT_TYPE_COLORS[type] ?? EVENT_TYPE_COLORS.personal;
         return {
           user_id: userId,
           title: s.title || (sourceType === 'schedule' ? 'Work Shift' : 'Event'),
-          type: (s.event_type ?? (sourceType === 'schedule' ? 'work' : 'personal')) as any,
+          type,
           start_at: all_day
             ? new Date(`${s.date}T09:00:00`).toISOString()
             : new Date(`${s.date}T${s.start_time}:00`).toISOString(),
@@ -370,7 +373,7 @@ export function AIImportScreen({ isModal = false, onClose }: AIImportScreenProps
             ? new Date(`${s.date}T10:00:00`).toISOString()
             : new Date(`${s.date}T${s.end_time}:00`).toISOString(),
           all_day,
-          color: userColor,
+          color,
           category_id: null as null,
           notes: s.notes ? `${s.notes}\n\nImported via AI` : 'Imported via AI',
           recurrence_id: null as null,
@@ -416,9 +419,7 @@ export function AIImportScreen({ isModal = false, onClose }: AIImportScreenProps
           >
             <Ionicons name="close" size={18} color={appColors.label} />
           </Pressable>
-        ) : (
-          <UserToggle />
-        )}
+        ) : null}
       </View>
 
       {/* Step dots (not on confirm/done) */}

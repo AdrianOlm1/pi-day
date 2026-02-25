@@ -54,7 +54,7 @@ export function GlassCard({ children, style, borderRadius = radius.xl, opacity =
         />
       )}
       {/* Border highlight */}
-      <View style={[g.border, { borderRadius }]} />
+      <View style={[g.border, { borderRadius, borderColor: hexToRgba(surf, 0.55) }]} />
       {/* Content */}
       <View style={g.content}>{children}</View>
     </View>
@@ -75,7 +75,6 @@ const g = StyleSheet.create({
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.55)',
   },
   content: {
     position: 'relative',

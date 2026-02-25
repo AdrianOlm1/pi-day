@@ -1,15 +1,17 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext } from 'react';
 import type { UserId } from '../types';
+import { AC_USER_COLOR_DEFAULTS } from '@/constants/acColors';
+import { USER_NAMES } from '@/utils/colors';
 import { useTheme } from './ThemeContext';
-
-const STORAGE_KEY = 'piday_user_mode';
+import { usePairing } from './PairingContext';
 
 interface UserModeContextValue {
   userId: UserId;
   userName: string;
   userColor: string;
+  /** No-op — role is determined by device pairing, not manually switchable */
   setUserId: (id: UserId) => void;
+  /** No-op — kept for backwards compat */
   toggleUser: () => void;
   isLoading: boolean;
 }
@@ -17,27 +19,12 @@ interface UserModeContextValue {
 const UserModeContext = createContext<UserModeContextValue | null>(null);
 
 export function UserModeProvider({ children }: { children: React.ReactNode }) {
-  const [userId, setUserIdState] = useState<UserId>('adrian');
-  const [isLoading, setIsLoading] = useState(true);
   const { getUserColor, getUserName } = useTheme();
+  const { state, role } = usePairing();
 
-  useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then((stored) => {
-      if (stored === 'adrian' || stored === 'sarah') {
-        setUserIdState(stored);
-      }
-      setIsLoading(false);
-    });
-  }, []);
-
-  const setUserId = useCallback((id: UserId) => {
-    setUserIdState(id);
-    AsyncStorage.setItem(STORAGE_KEY, id);
-  }, []);
-
-  const toggleUser = useCallback(() => {
-    setUserId(userId === 'adrian' ? 'sarah' : 'adrian');
-  }, [userId, setUserId]);
+  // While pairing is loading or role is unknown, fall back to 'adrian'
+  const userId: UserId = role ?? 'adrian';
+  const isLoading = state === 'loading';
 
   return (
     <UserModeContext.Provider
@@ -45,8 +32,8 @@ export function UserModeProvider({ children }: { children: React.ReactNode }) {
         userId,
         userName:  getUserName(userId),
         userColor: getUserColor(userId),
-        setUserId,
-        toggleUser,
+        setUserId: () => {},   // role is device-bound, not manually switchable
+        toggleUser: () => {},  // kept for backwards compat
         isLoading,
       }}
     >
@@ -55,8 +42,16 @@ export function UserModeProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+const FALLBACK_USER_MODE: UserModeContextValue = {
+  userId: 'adrian',
+  userName: USER_NAMES.adrian,
+  userColor: AC_USER_COLOR_DEFAULTS.adrian,
+  setUserId: () => {},
+  toggleUser: () => {},
+  isLoading: true,
+};
+
 export function useUserMode() {
   const ctx = useContext(UserModeContext);
-  if (!ctx) throw new Error('useUserMode must be used within UserModeProvider');
-  return ctx;
+  return ctx ?? FALLBACK_USER_MODE;
 }

@@ -6,7 +6,8 @@ import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { Ionicons } from '@expo/vector-icons';
 import type { Todo, TodoOwner } from '@/types';
 import { formatTime } from '@/utils/date';
-import { spacing, typography, colors, radius, shadows } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
+import { spacing, typography, radius, shadows } from '@/theme';
 
 function formatDueTime(todo: Todo): string | null {
   if (!todo.due_time || !todo.due_date) return null;
@@ -33,6 +34,7 @@ interface TodoSectionProps {
 }
 
 export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRemove, showAddInput = true, hideSectionHeader = false }: TodoSectionProps) {
+  const appColors = useAppColors();
   const [inputText, setInputText] = useState('');
   const [inputFocused, setInputFocused] = useState(false);
 
@@ -46,11 +48,11 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
   const done = todos.filter((t) => t.done).length;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: appColors.surface }]}>
       {hideSectionHeader ? null : (
         <View style={styles.header}>
           <View style={[styles.colorBar, { backgroundColor: color }]} />
-          <Text style={styles.headerLabel}>{label}</Text>
+          <Text style={[styles.headerLabel, { color: appColors.label }]}>{label}</Text>
           <View style={styles.headerMeta}>
             {remaining > 0 && (
               <View style={[styles.badge, { backgroundColor: color + '18' }]}>
@@ -58,7 +60,7 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
               </View>
             )}
             {done > 0 && (
-              <Text style={styles.doneCount}>{done} done</Text>
+              <Text style={[styles.doneCount, { color: appColors.labelTertiary }]}>{done} done</Text>
             )}
           </View>
         </View>
@@ -72,6 +74,7 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
               key={todo.id}
               todo={todo}
               color={color}
+              appColors={appColors}
               showDivider={idx < todos.length - 1}
               onToggle={() => onToggle(todo.id, !todo.done)}
               onRemove={() =>
@@ -87,13 +90,13 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
 
       {/* Add input (optional, e.g. hidden when using FAB) */}
       {showAddInput && (
-        <View style={[styles.addRow, (inputFocused) && { borderColor: color }]}>
+        <View style={[styles.addRow, { borderColor: inputFocused ? color : appColors.separator, backgroundColor: appColors.fillTertiary }]}>
           <TextInput
-            style={styles.addInput}
+            style={[styles.addInput, { color: appColors.label }]}
             value={inputText}
             onChangeText={setInputText}
             placeholder="Add a task…"
-            placeholderTextColor={colors.labelTertiary}
+            placeholderTextColor={appColors.labelTertiary}
             returnKeyType="done"
             onSubmitEditing={handleAdd}
             onFocus={() => setInputFocused(true)}
@@ -101,10 +104,10 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
           />
           <Pressable
             onPress={handleAdd}
-            style={[styles.addBtn, { backgroundColor: inputText.trim() ? color : colors.fill }]}
+            style={[styles.addBtn, { backgroundColor: inputText.trim() ? color : appColors.fill }]}
             disabled={!inputText.trim()}
           >
-            <Ionicons name="add" size={20} color={inputText.trim() ? '#fff' : colors.labelTertiary} />
+            <Ionicons name="add" size={20} color={inputText.trim() ? '#fff' : appColors.labelTertiary} />
           </Pressable>
         </View>
       )}
@@ -113,9 +116,9 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
 }
 
 function TodoRow({
-  todo, color, onToggle, onRemove, showDivider,
+  todo, color, appColors, onToggle, onRemove, showDivider,
 }: {
-  todo: Todo; color: string; onToggle: () => void; onRemove: () => void; showDivider: boolean;
+  todo: Todo; color: string; appColors: ReturnType<typeof useAppColors>; onToggle: () => void; onRemove: () => void; showDivider: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const checkScale = useRef(new Animated.Value(todo.done ? 1 : 0)).current;
@@ -136,9 +139,9 @@ function TodoRow({
   }
 
   return (
-    <Animated.View style={[styles.item, showDivider && styles.itemDivider, { transform: [{ scale }] }]}>
+    <Animated.View style={[styles.item, showDivider && [styles.itemDivider, { borderBottomColor: appColors.separator }], { transform: [{ scale }] }]}>
       <Pressable onPress={handleToggle} style={styles.checkboxWrap} hitSlop={10}>
-        <View style={[styles.checkbox, todo.done && { backgroundColor: color, borderColor: color }]}>
+        <View style={[styles.checkbox, { borderColor: appColors.labelTertiary }, todo.done && { backgroundColor: color, borderColor: color }]}>
           <Animated.View style={{ transform: [{ scale: checkScale }] }}>
             <Ionicons name="checkmark" size={13} color="#fff" />
           </Animated.View>
@@ -146,7 +149,7 @@ function TodoRow({
       </Pressable>
 
       <Text
-        style={[styles.itemText, todo.done && styles.itemDone]}
+        style={[styles.itemText, { color: appColors.label }, todo.done && [styles.itemDone, { color: appColors.labelTertiary }]]}
         numberOfLines={2}
         onPress={handleToggle}
       >
@@ -154,11 +157,11 @@ function TodoRow({
       </Text>
 
       {dueTimeStr ? (
-        <Text style={[styles.dueTime, todo.done && styles.itemDone]}>{dueTimeStr}</Text>
+        <Text style={[styles.dueTime, { color: appColors.labelTertiary }, todo.done && styles.itemDone]}>{dueTimeStr}</Text>
       ) : null}
 
       <Pressable onPress={onRemove} style={styles.deleteBtn} hitSlop={14}>
-        <Ionicons name="close" size={16} color={colors.labelTertiary} />
+        <Ionicons name="close" size={16} color={appColors.labelTertiary} />
       </Pressable>
     </Animated.View>
   );
@@ -166,7 +169,6 @@ function TodoRow({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     marginBottom: spacing.lg,
     overflow: 'hidden',
@@ -181,7 +183,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   colorBar: { width: 3, height: 18, borderRadius: 2 },
-  headerLabel: { ...typography.callout, color: colors.label, flex: 1 },
+  headerLabel: { ...typography.callout, flex: 1 },
   headerMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   badge: {
     borderRadius: radius.full,
@@ -191,7 +193,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   badgeText: { fontSize: 12, fontWeight: '700' },
-  doneCount: { ...typography.caption, color: colors.labelTertiary },
+  doneCount: { ...typography.caption },
   list: { paddingHorizontal: spacing.lg },
   item: {
     flexDirection: 'row',
@@ -201,7 +203,6 @@ const styles = StyleSheet.create({
   },
   itemDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
   },
   checkboxWrap: {},
   checkbox: {
@@ -209,13 +210,12 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     borderWidth: 1.5,
-    borderColor: colors.labelTertiary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  itemText: { flex: 1, ...typography.body, color: colors.label },
-  itemDone: { textDecorationLine: 'line-through', color: colors.labelTertiary },
-  dueTime: { ...typography.footnote, color: colors.labelTertiary, marginRight: spacing.xs },
+  itemText: { flex: 1, ...typography.body },
+  itemDone: { textDecorationLine: 'line-through' },
+  dueTime: { ...typography.footnote, marginRight: spacing.xs },
   deleteBtn: { padding: 2 },
   addRow: {
     flexDirection: 'row',
@@ -224,16 +224,13 @@ const styles = StyleSheet.create({
     margin: spacing.md,
     marginTop: spacing.sm,
     borderWidth: 1.5,
-    borderColor: colors.separator,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    backgroundColor: colors.fillTertiary,
   },
   addInput: {
     flex: 1,
     fontSize: 15,
-    color: colors.label,
     paddingVertical: spacing.sm,
   },
   addBtn: {

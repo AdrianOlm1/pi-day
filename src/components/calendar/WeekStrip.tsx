@@ -4,7 +4,8 @@ import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { format } from 'date-fns';
 import { getWeekDays, isSameDay, formatDate } from '@/utils/date';
 import type { EventOccurrence } from '@/types';
-import { spacing, typography, colors, radius } from '@/theme';
+import { spacing, typography, radius } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_WIDTH = Math.floor((SCREEN_WIDTH - spacing.lg * 2) / 7);
@@ -17,11 +18,12 @@ interface WeekStripProps {
 }
 
 export function WeekStrip({ selectedDate, occurrencesByDate, onSelectDate, accentColor }: WeekStripProps) {
+  const appColors = useAppColors();
   const days = getWeekDays(selectedDate);
   const today = new Date();
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: appColors.surface, borderBottomColor: appColors.separator }]}>
       {days.map((day) => {
         const key = formatDate(day);
         const events = occurrencesByDate[key] ?? [];
@@ -36,6 +38,7 @@ export function WeekStrip({ selectedDate, occurrencesByDate, onSelectDate, accen
             isToday={isToday}
             accentColor={accentColor}
             onSelectDate={onSelectDate}
+            appColors={appColors}
           />
         );
       })}
@@ -43,9 +46,10 @@ export function WeekStrip({ selectedDate, occurrencesByDate, onSelectDate, accen
   );
 }
 
-function DayPill({ day, events, isSelected, isToday, accentColor, onSelectDate }: {
+function DayPill({ day, events, isSelected, isToday, accentColor, onSelectDate, appColors }: {
   day: Date; events: EventOccurrence[]; isSelected: boolean; isToday: boolean;
   accentColor: string; onSelectDate: (d: Date) => void;
+  appColors: { label: string; labelTertiary: string };
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const onPressIn = () => Animated.spring(scale, { toValue: 0.90, useNativeDriver: true, damping: 20, stiffness: 400 }).start();
@@ -59,10 +63,10 @@ function DayPill({ day, events, isSelected, isToday, accentColor, onSelectDate }
         isToday && !isSelected && { backgroundColor: accentColor + '16' },
         { transform: [{ scale }] },
       ]}>
-        <Text style={[styles.weekday, isSelected && styles.textSelected, isToday && !isSelected && { color: accentColor, fontWeight: '600' }]}>
+        <Text style={[styles.weekday, { color: appColors.labelTertiary }, isSelected && styles.textSelected, isToday && !isSelected && { color: accentColor, fontWeight: '600' }]}>
           {format(day, 'EEE').toUpperCase()}
         </Text>
-        <Text style={[styles.dateNum, isSelected && styles.textSelected, isToday && !isSelected && { color: accentColor, fontWeight: '700' }]}>
+        <Text style={[styles.dateNum, { color: appColors.label }, isSelected && styles.textSelected, isToday && !isSelected && { color: accentColor, fontWeight: '700' }]}>
           {day.getDate()}
         </Text>
         {events.length > 0 ? (
@@ -82,9 +86,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: colors.surface,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
   },
   pill: {
     alignItems: 'center', justifyContent: 'center',
@@ -94,8 +96,8 @@ const styles = StyleSheet.create({
     minHeight: 70,
     gap: 2,
   },
-  weekday: { fontSize: 10, fontWeight: '600', color: colors.labelTertiary, letterSpacing: 0.5 },
-  dateNum: { ...typography.title3, color: colors.label, marginTop: 1 },
+  weekday: { fontSize: 10, fontWeight: '600', letterSpacing: 0.5 },
+  dateNum: { ...typography.title3, marginTop: 1 },
   textSelected: { color: '#fff' },
   dotRow: { flexDirection: 'row', gap: 2, marginTop: 4 },
   dot: { width: 4, height: 4, borderRadius: 2 },

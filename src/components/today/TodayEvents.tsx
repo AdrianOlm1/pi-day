@@ -6,7 +6,8 @@ import { formatTime } from '@/utils/date';
 import { useCategories } from '@/hooks/useCategories';
 import { USER_NAMES } from '@/utils/colors';
 import type { EventOccurrence } from '@/types';
-import { spacing, typography, colors, radius } from '@/theme';
+import { spacing, typography, radius } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 export function eventOccurrenceKey(ev: EventOccurrence): string {
   return `${ev.id}_${ev.occurrence_date}`;
@@ -21,12 +22,13 @@ interface TodayEventsProps {
 
 export function TodayEvents({ events, checkable, completedKeys, onToggle }: TodayEventsProps) {
   const { getCategoryById } = useCategories();
+  const appColors = useAppColors();
 
   if (events.length === 0) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyText}>Nothing scheduled today</Text>
-        <Text style={styles.emptySubtext}>Enjoy your free time</Text>
+        <Text style={[styles.emptyText, { color: appColors.labelSecondary }]}>Nothing scheduled today</Text>
+        <Text style={[styles.emptySubtext, { color: appColors.labelTertiary }]}>Enjoy your free time</Text>
       </View>
     );
   }
@@ -36,8 +38,10 @@ export function TodayEvents({ events, checkable, completedKeys, onToggle }: Toda
       {events.map((ev, idx) => {
         const key = eventOccurrenceKey(ev);
         const completed = checkable && completedKeys?.has(key);
+        const category = getCategoryById(ev.category_id ?? null);
+        const color = category?.color ?? ev.color;
         return (
-          <View key={key} style={[styles.card, idx < events.length - 1 && styles.cardBorder]}>
+          <View key={key} style={[styles.card, idx < events.length - 1 && [styles.cardBorder, { borderBottomColor: appColors.separator }]]}>
             {checkable && (
               <Pressable
                 style={[styles.checkbox, completed && styles.checkboxChecked]}
@@ -45,35 +49,34 @@ export function TodayEvents({ events, checkable, completedKeys, onToggle }: Toda
                 hitSlop={8}
               >
                 {completed ? (
-                  <Ionicons name="checkmark-circle" size={24} color={colors.success} />
+                  <Ionicons name="checkmark-circle" size={24} color={appColors.gradientFrom} />
                 ) : (
-                  <Ionicons name="ellipse-outline" size={24} color={colors.labelTertiary} />
+                  <Ionicons name="ellipse-outline" size={24} color={appColors.labelTertiary} />
                 )}
               </Pressable>
             )}
-            {/* Color accent stripe */}
-            <View style={[styles.stripe, { backgroundColor: ev.color }]} />
+            <View style={[styles.stripe, { backgroundColor: color }]} />
 
             <View style={styles.timeCol}>
               {ev.all_day ? (
-                <Text style={[styles.allDay, completed && styles.textStrike]}>{'All\n'}day</Text>
+                <Text style={[styles.allDay, { color: appColors.labelTertiary }, completed && styles.textStrike]}>{'All\n'}day</Text>
               ) : (
                 <>
-                  <Text style={[styles.timeStart, completed && styles.textStrike]}>{formatTime(ev.start_at)}</Text>
-                  <View style={styles.timeLine} />
-                  <Text style={[styles.timeEnd, completed && styles.textStrike]}>{formatTime(ev.end_at)}</Text>
+                  <Text style={[styles.timeStart, { color: appColors.label }, completed && styles.textStrike]}>{formatTime(ev.start_at)}</Text>
+                  <View style={[styles.timeLine, { backgroundColor: appColors.separator }]} />
+                  <Text style={[styles.timeEnd, { color: appColors.labelTertiary }, completed && styles.textStrike]}>{formatTime(ev.end_at)}</Text>
                 </>
               )}
             </View>
 
             <View style={styles.contentCol}>
-              <View style={[styles.typePill, { backgroundColor: ev.color + '18' }]}>
-                <Text style={[styles.typeText, { color: ev.color }]}>{getCategoryById(ev.category_id ?? null)?.name ?? ev.type}</Text>
+              <View style={[styles.typePill, { backgroundColor: color + '18' }]}>
+                <Text style={[styles.typeText, { color }]}>{category?.name ?? ev.type}</Text>
               </View>
-              <Text style={[styles.title, completed && styles.textStrike]} numberOfLines={2}>{ev.title}</Text>
-              <Text style={[styles.who, completed && styles.textStrike]}>{USER_NAMES[ev.user_id]}</Text>
+              <Text style={[styles.title, { color: appColors.label }, completed && styles.textStrike]} numberOfLines={2}>{ev.title}</Text>
+              <Text style={[styles.who, { color: appColors.labelTertiary }, completed && styles.textStrike]}>{USER_NAMES[ev.user_id]}</Text>
               {ev.notes ? (
-                <Text style={[styles.notes, completed && styles.textStrike]} numberOfLines={1}>{ev.notes}</Text>
+                <Text style={[styles.notes, { color: appColors.labelSecondary }, completed && styles.textStrike]} numberOfLines={1}>{ev.notes}</Text>
               ) : null}
             </View>
           </View>
@@ -86,8 +89,8 @@ export function TodayEvents({ events, checkable, completedKeys, onToggle }: Toda
 const styles = StyleSheet.create({
   container: {},
   empty: { alignItems: 'center', paddingVertical: spacing.xxxl },
-  emptyText: { ...typography.callout, color: colors.labelSecondary, marginBottom: spacing.xs },
-  emptySubtext: { ...typography.body, color: colors.labelTertiary },
+  emptyText: { ...typography.callout, marginBottom: spacing.xs },
+  emptySubtext: { ...typography.body },
   checkbox: { justifyContent: 'center', paddingRight: spacing.xs },
   checkboxChecked: {},
   textStrike: { textDecorationLine: 'line-through', opacity: 0.7 },
@@ -97,25 +100,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     gap: spacing.md,
   },
-  cardBorder: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
-  },
-  stripe: {
-    width: 3,
-    borderRadius: 2,
-    minHeight: 48,
-  },
-  timeCol: {
-    width: 58,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-  },
-  timeStart: { ...typography.footnote, fontWeight: '600', color: colors.label },
-  timeEnd: { ...typography.footnote, color: colors.labelTertiary },
-  timeLine: { width: 1, height: 8, backgroundColor: colors.separator },
-  allDay: { ...typography.caption, color: colors.labelTertiary, textAlign: 'center', lineHeight: 16 },
+  cardBorder: { borderBottomWidth: StyleSheet.hairlineWidth },
+  stripe: { width: 3, borderRadius: 2, minHeight: 48 },
+  timeCol: { width: 58, alignItems: 'center', justifyContent: 'center', gap: 3 },
+  timeStart: { ...typography.footnote, fontWeight: '600' },
+  timeEnd: { ...typography.footnote },
+  timeLine: { width: 1, height: 8 },
+  allDay: { ...typography.caption, textAlign: 'center', lineHeight: 16 },
   contentCol: { flex: 1, justifyContent: 'center', gap: 3 },
   typePill: {
     alignSelf: 'flex-start',
@@ -125,7 +116,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   typeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase' },
-  title: { ...typography.bodyEmphasis, color: colors.label, lineHeight: 20 },
-  who: { ...typography.caption, color: colors.labelTertiary, marginTop: 1 },
-  notes: { ...typography.footnote, color: colors.labelSecondary, marginTop: 2 },
+  title: { ...typography.bodyEmphasis, lineHeight: 20 },
+  who: { ...typography.caption, marginTop: 1 },
+  notes: { ...typography.footnote, marginTop: 2 },
 });

@@ -12,6 +12,7 @@ import {
   PanResponder,
 } from 'react-native';
 import { radius } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const DRAG_CLOSE_THRESHOLD = 60;
@@ -25,6 +26,7 @@ interface SheetProps {
 }
 
 export function Sheet({ visible, onClose, children, heightFraction = 0.6 }: SheetProps) {
+  const appColors = useAppColors();
   const translateY = useRef(new Animated.Value(SCREEN_H)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const dragOffset = useRef(new Animated.Value(0)).current;
@@ -77,9 +79,13 @@ export function Sheet({ visible, onClose, children, heightFraction = 0.6 }: Shee
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity.interpolate({ inputRange: [0,1], outputRange: [0,0.45] }) }]} />
       </Pressable>
-      <Animated.View style={[styles.sheet, { height: SCREEN_H * heightFraction, transform: sheetTransform }]}>
+      <Animated.View style={[styles.sheet, {
+        height: SCREEN_H * heightFraction,
+        transform: sheetTransform,
+        backgroundColor: appColors.surface,
+      }]}>
         <View style={styles.handleBar} {...panResponder.panHandlers}>
-          <View style={styles.handle} />
+          <View style={[styles.handle, { backgroundColor: appColors.fill }]} />
         </View>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -95,12 +101,11 @@ const styles = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
   sheet: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: radius.xxl, borderTopRightRadius: radius.xxl,
     shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.12, shadowRadius: 24, elevation: 20,
   },
   handleBar: { alignItems: 'center', paddingTop: 12, paddingBottom: 6 },
-  handle: { width: 32, height: 4, borderRadius: 2, backgroundColor: 'rgba(0,0,0,0.12)' },
+  handle: { width: 32, height: 4, borderRadius: 2 },
   content: { padding: 24, paddingBottom: 52 },
 });

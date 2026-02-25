@@ -7,7 +7,8 @@ import { formatTime } from '@/utils/date';
 import { useCategories } from '@/hooks/useCategories';
 import type { EventOccurrence, UserId } from '@/types';
 import { USER_COLORS } from '@/utils/colors';
-import { typography, colors, radius, spacing, shadows } from '@/theme';
+import { typography, radius, spacing, shadows } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 const USER_DISPLAY_NAMES: Record<UserId, string> = {
   adrian: "Adrian's",
@@ -54,27 +55,28 @@ interface EventBlockProps {
   ev: EventOccurrence;
   onPress?: (ev: EventOccurrence) => void;
   categoryLabel: string;
-  /** When set, render as a timeline block with fixed height (one block per event, height = duration). */
+  color: string;
   timelineHeight?: number;
+  appColors: { surface: string; label: string; labelSecondary: string; labelTertiary: string };
 }
 
-function EventBlock({ ev, onPress, categoryLabel, timelineHeight }: EventBlockProps) {
+function EventBlock({ ev, onPress, categoryLabel, color, timelineHeight, appColors }: EventBlockProps) {
   return (
     <Pressable
-      style={[styles.block, timelineHeight != null && { minHeight: timelineHeight }]}
+      style={[styles.block, { backgroundColor: appColors.surface }, timelineHeight != null && { minHeight: timelineHeight }]}
       onPress={() => onPress?.(ev)}
     >
-      <View style={[styles.blockStripe, { backgroundColor: ev.color }]} />
+      <View style={[styles.blockStripe, { backgroundColor: color }]} />
       <View style={styles.blockBody}>
-        <View style={[styles.typePill, { backgroundColor: ev.color + '18' }]}>
-          <Text style={[styles.typeText, { color: ev.color }]}>{categoryLabel}</Text>
+        <View style={[styles.typePill, { backgroundColor: color + '18' }]}>
+          <Text style={[styles.typeText, { color }]}>{categoryLabel}</Text>
         </View>
-        <Text style={styles.blockTitle} numberOfLines={timelineHeight != null ? 3 : 2}>{ev.title}</Text>
-        <Text style={styles.blockTime}>
+        <Text style={[styles.blockTitle, { color: appColors.label }]} numberOfLines={timelineHeight != null ? 3 : 2}>{ev.title}</Text>
+        <Text style={[styles.blockTime, { color: appColors.labelSecondary }]}>
           {ev.all_day ? 'All day' : `${formatTime(ev.start_at)} – ${formatTime(ev.end_at)}`}
         </Text>
         {ev.notes && timelineHeight == null ? (
-          <Text style={styles.blockNotes} numberOfLines={2}>{ev.notes}</Text>
+          <Text style={[styles.blockNotes, { color: appColors.labelTertiary }]} numberOfLines={2}>{ev.notes}</Text>
         ) : null}
       </View>
     </Pressable>
@@ -99,6 +101,7 @@ export function DayItinerary({
   showHeaders = true,
 }: DayItineraryProps) {
   const { getCategoryById } = useCategories();
+  const appColors = useAppColors();
 
   const {
     dateStr,
@@ -108,23 +111,33 @@ export function DayItinerary({
     hourLabels,
     allDayAdrian,
     allDaySarah,
+    allDayShared,
     timedAdrian,
     timedSarah,
+    timedShared,
   } = useMemo(() => {
     const dateStr = format(selectedDate, 'yyyy-MM-dd');
     const adrian: EventOccurrence[] = [];
     const sarah: EventOccurrence[] = [];
+    const shared: EventOccurrence[] = [];
     for (const ev of events) {
-      if (ev.user_id === 'adrian') adrian.push(ev);
-      else sarah.push(ev);
+      if (ev.type === 'shared') {
+        shared.push(ev);
+      } else if (ev.user_id === 'adrian') {
+        adrian.push(ev);
+      } else {
+        sarah.push(ev);
+      }
     }
     const allDayAdrian = sortEvents(adrian.filter((e) => e.all_day));
     const allDaySarah = sortEvents(sarah.filter((e) => e.all_day));
+    const allDayShared = sortEvents(shared.filter((e) => e.all_day));
     const timedAdrianList = adrian.filter((e) => !e.all_day);
     const timedSarahList = sarah.filter((e) => !e.all_day);
+    const timedSharedList = shared.filter((e) => !e.all_day);
 
     let dayStartMinutes = DEFAULT_START_HOUR * 60;
-    for (const ev of [...timedAdrianList, ...timedSarahList]) {
+    for (const ev of [...timedAdrianList, ...timedSarahList, ...timedSharedList]) {
       const m = getMinutesInDay(ev.start_at, dateStr);
       if (m < dayStartMinutes) dayStartMinutes = Math.max(0, Math.floor(m / 60) * 60);
     }
@@ -148,6 +161,7 @@ export function DayItinerary({
 
     const timedAdrian: TimedEventPlacement[] = timedAdrianList.map(place);
     const timedSarah: TimedEventPlacement[] = timedSarahList.map(place);
+    const timedShared: TimedEventPlacement[] = timedSharedList.map(place);
 
     return {
       dateStr,
@@ -157,13 +171,15 @@ export function DayItinerary({
       hourLabels,
       allDayAdrian,
       allDaySarah,
+      allDayShared,
       timedAdrian,
       timedSarah,
+      timedShared,
     };
   }, [events, selectedDate]);
 
-  const hasAllDay = allDayAdrian.length > 0 || allDaySarah.length > 0;
-  const hasTimed = timedAdrian.length > 0 || timedSarah.length > 0;
+  const hasAllDay = allDayAdrian.length > 0 || allDaySarah.length > 0 || allDayShared.length > 0;
+  const hasTimed = timedAdrian.length > 0 || timedSarah.length > 0 || timedShared.length > 0;
 
   const isToday = format(selectedDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
   const nowTopPx =
@@ -187,7 +203,9 @@ export function DayItinerary({
             ev={ev}
             onPress={onEventPress}
             categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
+            color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
             timelineHeight={heightPx}
+            appColors={appColors}
           />
         </View>
       ))}
@@ -197,46 +215,73 @@ export function DayItinerary({
   return (
     <View style={styles.wrapper}>
       {showHeaders && (
-        <View style={styles.row}>
-          <View style={styles.timeRulerHeader} />
-          <View style={[styles.columnHeader, { borderBottomColor: USER_COLORS.adrian + '40' }]}>
-            <View style={[styles.columnDot, { backgroundColor: USER_COLORS.adrian }]} />
-            <Text style={[styles.columnTitle, { color: USER_COLORS.adrian }]}>{USER_DISPLAY_NAMES.adrian}</Text>
+        <>
+          <View style={styles.row}>
+            <View style={styles.timeRulerHeader} />
+            <View style={[styles.columnHeader, { backgroundColor: appColors.surface, borderBottomColor: USER_COLORS.adrian + '40' }]}>
+              <View style={[styles.columnDot, { backgroundColor: USER_COLORS.adrian }]} />
+              <Text style={[styles.columnTitle, { color: USER_COLORS.adrian }]}>{USER_DISPLAY_NAMES.adrian}</Text>
+            </View>
+            <View style={[styles.columnHeader, { backgroundColor: appColors.surface, borderBottomColor: USER_COLORS.sarah + '40' }]}>
+              <View style={[styles.columnDot, { backgroundColor: USER_COLORS.sarah }]} />
+              <Text style={[styles.columnTitle, { color: USER_COLORS.sarah }]}>{USER_DISPLAY_NAMES.sarah}</Text>
+            </View>
           </View>
-          <View style={[styles.columnHeader, { borderBottomColor: USER_COLORS.sarah + '40' }]}>
-            <View style={[styles.columnDot, { backgroundColor: USER_COLORS.sarah }]} />
-            <Text style={[styles.columnTitle, { color: USER_COLORS.sarah }]}>{USER_DISPLAY_NAMES.sarah}</Text>
-          </View>
-        </View>
+        </>
       )}
 
       {hasAllDay && (
-        <View style={styles.allDayRow}>
-          <View style={styles.timeRulerCell}>
-            <Text style={styles.timeLabel}>All day</Text>
+        <>
+          <View style={[styles.allDayRow, { borderBottomColor: appColors.separator }]}>
+            <View style={styles.timeRulerCell}>
+              <Text style={[styles.timeLabel, { color: appColors.labelTertiary }]}>All day</Text>
+            </View>
+            <View style={styles.allDayColumn}>
+              {allDayAdrian.map((ev) => (
+                <EventBlock
+                  key={ev.id + ev.occurrence_date}
+                  ev={ev}
+                  onPress={onEventPress}
+                  categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
+                  color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
+                  appColors={appColors}
+                />
+              ))}
+            </View>
+            <View style={[styles.columnDivider, { backgroundColor: appColors.separator }]} />
+            <View style={styles.allDayColumn}>
+              {allDaySarah.map((ev) => (
+                <EventBlock
+                  key={ev.id + ev.occurrence_date}
+                  ev={ev}
+                  onPress={onEventPress}
+                  categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
+                  color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
+                  appColors={appColors}
+                />
+              ))}
+            </View>
           </View>
-          <View style={styles.allDayColumn}>
-            {allDayAdrian.map((ev) => (
-              <EventBlock
-                key={ev.id + ev.occurrence_date}
-                ev={ev}
-                onPress={onEventPress}
-                categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
-              />
-            ))}
-          </View>
-          <View style={styles.columnDivider} />
-          <View style={styles.allDayColumn}>
-            {allDaySarah.map((ev) => (
-              <EventBlock
-                key={ev.id + ev.occurrence_date}
-                ev={ev}
-                onPress={onEventPress}
-                categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
-              />
-            ))}
-          </View>
-        </View>
+          {allDayShared.length > 0 && (
+            <View style={[styles.allDayRow, styles.sharedAllDayRow, { borderBottomColor: appColors.separator }]}>
+              <View style={styles.timeRulerCell}>
+                <Text style={[styles.timeLabel, { color: appColors.labelTertiary }]}>All day</Text>
+              </View>
+              <View style={styles.sharedAllDayColumn}>
+                {allDayShared.map((ev) => (
+                  <EventBlock
+                    key={ev.id + ev.occurrence_date}
+                    ev={ev}
+                    onPress={onEventPress}
+                    categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
+                    color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
+                    appColors={appColors}
+                  />
+                ))}
+              </View>
+            </View>
+          )}
+        </>
       )}
 
       {hasTimed ? (
@@ -248,7 +293,7 @@ export function DayItinerary({
                 key={`hr-${h}`}
                 style={[
                   styles.hourLine,
-                  { top: (h * 60 - dayStartMinutes) / totalDayMinutes * timelineHeightPx },
+                  { top: (h * 60 - dayStartMinutes) / totalDayMinutes * timelineHeightPx, backgroundColor: appColors.separator },
                 ]}
               />
             ))}
@@ -262,18 +307,39 @@ export function DayItinerary({
             <View style={[styles.timeRuler, { height: timelineHeightPx }]}>
               {hourLabels.map((h) => (
                 <View key={h} style={[styles.timeRulerTick, { top: Math.max(0, (h * 60 - dayStartMinutes) / totalDayMinutes * timelineHeightPx - 6) }]}>
-                  <Text style={styles.timeLabel}>{formatHourLabel(h)}</Text>
+                  <Text style={[styles.timeLabel, { color: appColors.labelTertiary }]}>{formatHourLabel(h)}</Text>
                 </View>
               ))}
             </View>
-            {renderTimelineColumn('adrian', timedAdrian)}
-            <View style={styles.columnDivider} />
-            {renderTimelineColumn('sarah', timedSarah)}
+            <View style={styles.timelineColumnsWrapper}>
+              {renderTimelineColumn('adrian', timedAdrian)}
+              <View style={[styles.columnDivider, { backgroundColor: appColors.separator }]} />
+              {renderTimelineColumn('sarah', timedSarah)}
+              {timedShared.length > 0 && (
+                <View style={[styles.sharedTimedOverlay, { height: timelineHeightPx }]} pointerEvents="box-none">
+                  {timedShared.map(({ ev, topPx, heightPx }) => (
+                    <View
+                      key={ev.id + ev.occurrence_date}
+                      style={[styles.sharedTimedBlock, { top: topPx, height: heightPx }]}
+                    >
+                      <EventBlock
+                        ev={ev}
+                        onPress={onEventPress}
+                        categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
+                        color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
+                        timelineHeight={heightPx}
+                        appColors={appColors}
+                      />
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
           </View>
         </ScrollView>
       ) : !hasAllDay ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyColumnText}>Nothing scheduled</Text>
+          <Text style={[styles.emptyColumnText, { color: appColors.labelTertiary }]}>Nothing scheduled</Text>
         </View>
       ) : null}
     </View>
@@ -294,7 +360,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
     borderBottomWidth: 2,
-    backgroundColor: colors.surface,
   },
   columnDot: { width: 8, height: 8, borderRadius: 4 },
   columnTitle: { ...typography.subhead, fontWeight: '700' },
@@ -304,21 +369,37 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.xs,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
     gap: spacing.sm,
   },
   timeRulerCell: { width: TIME_RULER_WIDTH, paddingTop: 2 },
-  timeLabel: { ...typography.caption, color: colors.labelTertiary, fontWeight: '600' },
+  timeLabel: { ...typography.caption, fontWeight: '600' },
   allDayColumn: { flex: 1, gap: spacing.sm },
-  columnDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
+  sharedAllDayRow: { paddingVertical: spacing.sm },
+  sharedAllDayColumn: { flex: 1, gap: spacing.sm, marginLeft: spacing.xs },
+  columnDivider: { width: StyleSheet.hairlineWidth },
   timelineScroll: { flex: 1 },
   timelineRow: { flexDirection: 'row', alignItems: 'flex-start', position: 'relative' as const },
+  timelineColumnsWrapper: { flex: 1, flexDirection: 'row', position: 'relative' as const },
+  sharedTimedOverlay: {
+    position: 'absolute' as const,
+    left: 0,
+    right: 0,
+    top: 0,
+    paddingHorizontal: spacing.xs,
+    zIndex: 5,
+  },
+  sharedTimedBlock: {
+    position: 'absolute' as const,
+    left: spacing.xs,
+    right: spacing.xs,
+    borderRadius: radius.md,
+    overflow: 'hidden' as const,
+  },
   hourLine: {
     position: 'absolute' as const,
     left: 0,
     right: 0,
     height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.separator,
   },
   nowLine: {
     position: 'absolute' as const,
@@ -332,10 +413,7 @@ const styles = StyleSheet.create({
     position: 'relative' as const,
     paddingHorizontal: spacing.xs,
   },
-  timeRulerTick: {
-    position: 'absolute' as const,
-    left: 0,
-  },
+  timeRulerTick: { position: 'absolute' as const, left: 0 },
   timelineColumn: {
     flex: 1,
     position: 'relative' as const,
@@ -349,10 +427,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden' as const,
   },
   emptyState: { paddingVertical: spacing.xl, alignItems: 'center' },
-  emptyColumnText: { ...typography.footnote, color: colors.labelTertiary },
+  emptyColumnText: { ...typography.footnote },
   block: {
     flexDirection: 'row',
-    backgroundColor: colors.surface,
     borderRadius: radius.md,
     overflow: 'hidden',
     ...shadows.sm,
@@ -366,7 +443,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   typeText: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
-  blockTitle: { ...typography.footnote, fontWeight: '600', color: colors.label },
-  blockTime: { fontSize: 11, color: colors.labelSecondary },
-  blockNotes: { fontSize: 10, color: colors.labelTertiary, marginTop: 2 },
+  blockTitle: { ...typography.footnote, fontWeight: '600' },
+  blockTime: { fontSize: 11 },
+  blockNotes: { fontSize: 10, marginTop: 2 },
 });

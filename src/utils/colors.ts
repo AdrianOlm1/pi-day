@@ -7,7 +7,7 @@ export const USER_COLORS: Record<UserId, string> = {
 
 export const USER_NAMES: Record<UserId, string> = {
   adrian: 'Adrian :P',
-  sarah: 'Sarah <3',
+  sarah: 'Sarah',
 };
 
 export const SHARED_COLOR = '#8B5CF6';

@@ -5,7 +5,7 @@ import {
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format, addHours, differenceInCalendarWeeks, startOfDay, parseISO } from 'date-fns';
+import { format, addHours, addWeeks, differenceInCalendarWeeks, startOfDay, parseISO } from 'date-fns';
 import { TextInput } from '@/components/ui/TextInput';
 import { Button } from '@/components/ui/Button';
 import { DatePickerCalendar } from '@/components/calendar/DatePickerCalendar';
@@ -82,6 +82,12 @@ export function EventForm({ initialDate, onSave, onCancel }: EventFormProps) {
     }
   }, [categories, categoryId]);
 
+  useEffect(() => {
+    if (isRecurring && ruleType === 'weekly' && !recurrenceEndDate) {
+      setRecurrenceEndDate(addWeeks(startOfDay(initialDate), 12));
+    }
+  }, [isRecurring, ruleType]);
+
   function toggleDow(d: number) {
     setSelectedDows((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
   }
@@ -111,9 +117,9 @@ export function EventForm({ initialDate, onSave, onCancel }: EventFormProps) {
     } else if (isRecurring) {
       if (ruleType === 'weekly') {
         if (!selectedDows.length) { Alert.alert('Select days', 'Choose at least one day.'); return; }
-        const num_weeks = recurrenceEndDate
-          ? Math.max(1, differenceInCalendarWeeks(recurrenceEndDate, startOfDay(initialDate)) + 1)
-          : null;
+        if (!recurrenceEndDate) { Alert.alert('End date required', 'Please choose when the recurrence ends.'); return; }
+        if (recurrenceEndDate < startOfDay(initialDate)) { Alert.alert('Invalid end date', 'End date must be on or after the start date.'); return; }
+        const num_weeks = Math.max(1, differenceInCalendarWeeks(recurrenceEndDate, startOfDay(initialDate)) + 1);
         recurrence = { rule_type: 'weekly', days_of_week: selectedDows.sort(), num_weeks, custom_dates: [] };
       } else {
         if (!selectedCustomDates.length) { Alert.alert('Select dates', 'Tap dates on the calendar.'); return; }
@@ -123,10 +129,11 @@ export function EventForm({ initialDate, onSave, onCancel }: EventFormProps) {
 
     const category = getCategoryById(categoryId) ?? defaultCategory;
     const type = category ? categoryNameToType(category.name) : 'personal';
+    const color = category?.color ?? userColor;
 
     setSaving(true);
     try {
-      await onSave({ title: title.trim(), type, category_id: categoryId, user_id: userId, start_at: startISO, end_at: endISO, all_day: allDay, notes: notes.trim(), color: userColor, recurrence });
+      await onSave({ title: title.trim(), type, category_id: categoryId, user_id: userId, start_at: startISO, end_at: endISO, all_day: allDay, notes: notes.trim(), color, recurrence });
     } finally { setSaving(false); }
   }
 
@@ -278,19 +285,14 @@ export function EventForm({ initialDate, onSave, onCancel }: EventFormProps) {
                   );
                 })}
               </View>
-              <Text style={styles.sectionLabel}>Ends on (optional)</Text>
-              <Text style={styles.calendarHint}>Tap a date to set when recurrence ends. Leave unset for forever.</Text>
+              <Text style={styles.sectionLabel}>Ends on</Text>
+              <Text style={styles.calendarHint}>Tap a date to set when the recurrence ends.</Text>
               <DatePickerCalendar
                 selectedDate={recurrenceEndDate}
                 onSelectDate={(d) => setRecurrenceEndDate(d)}
                 minDate={initialDate}
                 accentColor={userColor}
               />
-              {recurrenceEndDate ? (
-                <Pressable onPress={() => setRecurrenceEndDate(null)} style={styles.clearEndDate}>
-                  <Text style={[styles.clearEndDateText, { color: userColor }]}>Clear end date (repeat forever)</Text>
-                </Pressable>
-              ) : null}
             </>
           ) : (
             <>
@@ -364,8 +366,6 @@ const styles = StyleSheet.create({
   timeSepText: { ...typography.callout, color: colors.labelTertiary },
   cancelBtn: { flex: 1, backgroundColor: colors.fillSecondary },
   calendarHint: { ...typography.footnote, color: colors.labelTertiary, marginBottom: spacing.sm },
-  clearEndDate: { marginTop: spacing.sm },
-  clearEndDateText: { fontSize: 13, fontWeight: '600' },
   recurrenceBox: {
     borderWidth: 1.5, borderRadius: radius.lg, padding: spacing.lg,
     marginBottom: spacing.lg, backgroundColor: colors.fillTertiary,

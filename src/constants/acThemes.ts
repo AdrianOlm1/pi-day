@@ -34,6 +34,8 @@ export interface ACThemeColors {
   labelSecondary: string;
   labelTertiary: string;
   labelQuaternary: string;
+  // Semantic
+  destructive: string;
   // Gradient pair for LinearGradient accents (from → to)
   gradientFrom: string;
   gradientTo: string;
@@ -90,6 +92,7 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       gradientTo:      '#A78BFA',
       bgTint:          '#6B8EFF',
       bgTintOpacity:   0.04,
+      destructive:     '#DC2626',
     },
   },
 
@@ -120,6 +123,7 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       gradientTo:      '#F5C842',
       bgTint:          '#C8922A',
       bgTintOpacity:   0.07,
+      destructive:     '#DC2626',
     },
   },
 
@@ -150,6 +154,7 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       gradientTo:      '#5EC266',
       bgTint:          '#2E8B3A',
       bgTintOpacity:   0.08,
+      destructive:     '#DC2626',
     },
   },
 
@@ -180,6 +185,7 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       gradientTo:      '#38D0F5',
       bgTint:          '#0EA5C8',
       bgTintOpacity:   0.09,
+      destructive:     '#DC2626',
     },
   },
 
@@ -210,6 +216,7 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       gradientTo:      '#FFD84D',
       bgTint:          '#EAA800',
       bgTintOpacity:   0.09,
+      destructive:     '#DC2626',
     },
   },
 
@@ -240,6 +247,7 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       gradientTo:      '#C4A0FF',
       bgTint:          '#8052D8',
       bgTintOpacity:   0.08,
+      destructive:     '#DC2626',
     },
   },
 
@@ -270,6 +278,7 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       gradientTo:      '#7090FF',
       bgTint:          '#3C50CC',
       bgTintOpacity:   0.08,
+      destructive:     '#DC2626',
     },
   },
 
@@ -300,6 +309,7 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       gradientTo:      '#52D08A',
       bgTint:          '#1E9958',
       bgTintOpacity:   0.09,
+      destructive:     '#DC2626',
     },
   },
 

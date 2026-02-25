@@ -4,7 +4,8 @@ import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { getWeekDays, isSameDay, formatDate, formatTime } from '@/utils/date';
 import type { EventOccurrence } from '@/types';
 import { format } from 'date-fns';
-import { typography, colors, radius, spacing } from '@/theme';
+import { typography, radius, spacing } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 interface WeekViewProps {
   currentDate: Date;
@@ -19,8 +20,10 @@ export function WeekView({
   selectedDate,
   occurrencesByDate,
   onSelectDate,
-  accentColor = '#3B82F6',
+  accentColor: accentProp,
 }: WeekViewProps) {
+  const appColors = useAppColors();
+  const accentColor = accentProp ?? appColors.gradientFrom;
   const days = useMemo(() => getWeekDays(currentDate), [currentDate]);
   const today = new Date();
   const key = formatDate(selectedDate);
@@ -28,7 +31,7 @@ export function WeekView({
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, { backgroundColor: appColors.surface, borderBottomColor: appColors.separator }]}>
         {days.map((day, i) => {
           const isToday = isSameDay(day, today);
           const isSelected = isSameDay(day, selectedDate);
@@ -38,7 +41,7 @@ export function WeekView({
               style={styles.headerCell}
               onPress={() => onSelectDate(day)}
             >
-              <Text style={styles.dowLabel}>{format(day, 'EEE')}</Text>
+              <Text style={[styles.dowLabel, { color: appColors.labelTertiary }]}>{format(day, 'EEE')}</Text>
               <View
                 style={[
                   styles.dateCircle,
@@ -49,6 +52,7 @@ export function WeekView({
                 <Text
                   style={[
                     styles.dateNumber,
+                    { color: appColors.label },
                     isToday && styles.todayText,
                     isSelected && !isToday && { color: accentColor, fontWeight: '600' },
                   ]}
@@ -63,18 +67,18 @@ export function WeekView({
 
       <ScrollView style={styles.eventsArea} showsVerticalScrollIndicator={false}>
         {events.length === 0 ? (
-          <Text style={styles.noEvents}>No events today</Text>
+          <Text style={[styles.noEvents, { color: appColors.labelTertiary }]}>No events today</Text>
         ) : (
           events.map((ev) => (
-            <View key={ev.id + ev.occurrence_date} style={[styles.eventRow, { borderLeftColor: ev.color }]}>
+            <View key={ev.id + ev.occurrence_date} style={[styles.eventRow, { borderLeftColor: ev.color, backgroundColor: appColors.fillSecondary }]}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.eventTitle}>{ev.title}</Text>
+                <Text style={[styles.eventTitle, { color: appColors.label }]}>{ev.title}</Text>
                 {!ev.all_day ? (
-                  <Text style={styles.eventTime}>
+                  <Text style={[styles.eventTime, { color: appColors.labelSecondary }]}>
                     {formatTime(ev.start_at)} – {formatTime(ev.end_at)}
                   </Text>
                 ) : (
-                  <Text style={styles.eventTime}>All day</Text>
+                  <Text style={[styles.eventTime, { color: appColors.labelSecondary }]}>All day</Text>
                 )}
               </View>
               <View style={[styles.colorBar, { backgroundColor: ev.color }]} />
@@ -90,17 +94,11 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   headerRow: {
     flexDirection: 'row',
-    backgroundColor: colors.surface,
     paddingVertical: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
   },
   headerCell: { flex: 1, alignItems: 'center' },
-  dowLabel: {
-    ...typography.caption,
-    color: colors.labelTertiary,
-    marginBottom: spacing.xs,
-  },
+  dowLabel: { ...typography.caption, marginBottom: spacing.xs },
   dateCircle: {
     width: 32,
     height: 32,
@@ -108,26 +106,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dateNumber: { ...typography.subhead, color: colors.label },
+  dateNumber: { ...typography.subhead },
   todayText: { color: '#fff', fontWeight: '700' },
   eventsArea: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  noEvents: {
-    textAlign: 'center',
-    color: colors.labelTertiary,
-    marginTop: 40,
-    ...typography.body,
-  },
+  noEvents: { textAlign: 'center', marginTop: 40, ...typography.body },
   eventRow: {
     borderLeftWidth: 4,
     paddingLeft: spacing.md,
     marginBottom: spacing.sm,
     paddingVertical: spacing.sm,
-    backgroundColor: colors.fillSecondary,
     borderRadius: radius.xs,
     flexDirection: 'row',
     alignItems: 'center',
   },
-  eventTitle: { ...typography.subhead, color: colors.label },
-  eventTime: { ...typography.footnote, color: colors.labelSecondary, marginTop: 2 },
+  eventTitle: { ...typography.subhead },
+  eventTime: { ...typography.footnote, marginTop: 2 },
   colorBar: { width: 4, height: 36, borderRadius: 2, marginLeft: spacing.sm },
 });

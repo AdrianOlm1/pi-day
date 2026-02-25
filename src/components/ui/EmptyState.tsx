@@ -2,7 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated } from 'react-native';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, typography, colors, radius } from '@/theme';
+import { spacing, typography, radius } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 interface EmptyStateProps {
   icon?: string;
@@ -12,7 +13,9 @@ interface EmptyStateProps {
   color?: string;
 }
 
-export function EmptyState({ icon, emoji = '', title, subtitle, color = colors.labelTertiary }: EmptyStateProps) {
+export function EmptyState({ icon, emoji = '', title, subtitle, color }: EmptyStateProps) {
+  const appColors = useAppColors();
+  const accent = color ?? appColors.labelTertiary;
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(12)).current;
 
@@ -25,14 +28,14 @@ export function EmptyState({ icon, emoji = '', title, subtitle, color = colors.l
 
   return (
     <Animated.View style={[styles.container, { opacity, transform: [{ translateY }] }]}>
-      <View style={[styles.iconWrap, { backgroundColor: color + '12' }]}>
+      <View style={[styles.iconWrap, { backgroundColor: accent + '12' }]}>
         {icon
-          ? <Ionicons name={icon as any} size={36} color={color} />
-          : emoji ? <Text style={styles.emoji}>{emoji}</Text> : <Ionicons name="document-outline" size={36} color={color} />
+          ? <Ionicons name={icon as any} size={36} color={accent} />
+          : emoji ? <Text style={styles.emoji}>{emoji}</Text> : <Ionicons name="document-outline" size={36} color={accent} />
         }
       </View>
-      <Text style={styles.title}>{title}</Text>
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      <Text style={[styles.title, { color: appColors.label }]}>{title}</Text>
+      {subtitle ? <Text style={[styles.subtitle, { color: appColors.labelSecondary }]}>{subtitle}</Text> : null}
     </Animated.View>
   );
 }
@@ -41,6 +44,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xxxl, paddingVertical: 48 },
   iconWrap: { width: 72, height: 72, borderRadius: radius.xl, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.lg },
   emoji: { fontSize: 36 },
-  title: { ...typography.title3, color: colors.label, textAlign: 'center', marginBottom: spacing.sm },
-  subtitle: { ...typography.body, color: colors.labelSecondary, textAlign: 'center', lineHeight: 22 },
+  title: { ...typography.title3, textAlign: 'center', marginBottom: spacing.sm },
+  subtitle: { ...typography.body, textAlign: 'center', lineHeight: 22 },
 });

@@ -5,7 +5,8 @@ import {
   StyleSheet, View,
 } from 'react-native';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
-import { spacing, radius, typography, colors } from '@/theme';
+import { spacing, radius, typography } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 interface TextInputProps extends RNTextInputProps {
   label?: string;
@@ -14,34 +15,42 @@ interface TextInputProps extends RNTextInputProps {
   accentColor?: string;
 }
 
-export function TextInput({ label, error, hint, accentColor = '#3B82F6', style, onFocus, onBlur, ...props }: TextInputProps) {
+export function TextInput({ label, error, hint, accentColor, style, onFocus, onBlur, ...props }: TextInputProps) {
+  const appColors = useAppColors();
+  const accent = accentColor ?? appColors.gradientFrom;
   const [focused, setFocused] = useState(false);
   return (
     <View style={styles.wrapper}>
-      {label ? <Text style={[styles.label, focused && { color: accentColor }]}>{label}</Text> : null}
+      {label ? <Text style={[styles.label, { color: appColors.labelSecondary }, focused && { color: accent }]}>{label}</Text> : null}
       <RNTextInput
-        style={[styles.input, focused && [styles.inputFocused, { borderColor: accentColor }], error && styles.inputError, style]}
-        placeholderTextColor={colors.labelTertiary}
-        selectionColor={accentColor}
+        style={[
+          styles.input,
+          { borderColor: appColors.separator, color: appColors.label, backgroundColor: appColors.surface },
+          focused && [styles.inputFocused, { borderColor: accent }],
+          error && [styles.inputError, { borderColor: appColors.destructive }],
+          style,
+        ]}
+        placeholderTextColor={appColors.labelTertiary}
+        selectionColor={accent}
         onFocus={(e) => { setFocused(true); onFocus?.(e); }}
         onBlur={(e) => { setFocused(false); onBlur?.(e); }}
         {...props}
       />
-      {error ? <Text style={styles.error}>{error}</Text> : hint ? <Text style={styles.hint}>{hint}</Text> : null}
+      {error ? <Text style={[styles.error, { color: appColors.destructive }]}>{error}</Text> : hint ? <Text style={[styles.hint, { color: appColors.labelTertiary }]}>{hint}</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: { marginBottom: spacing.lg },
-  label: { ...typography.subhead, color: colors.labelSecondary, marginBottom: spacing.xs + 2 },
+  label: { ...typography.subhead, marginBottom: spacing.xs + 2 },
   input: {
-    borderWidth: 1.5, borderColor: colors.separator, borderRadius: radius.md,
+    borderWidth: 1.5, borderRadius: radius.md,
     paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-    fontSize: 15, color: colors.label, backgroundColor: colors.surface,
+    fontSize: 15,
   },
-  inputFocused: { borderWidth: 1.5, backgroundColor: colors.surface },
-  inputError: { borderColor: '#EF4444', borderWidth: 1.5 },
-  error: { fontSize: 12, color: '#EF4444', marginTop: spacing.xs, fontWeight: '500' },
-  hint: { ...typography.footnote, color: colors.labelTertiary, marginTop: spacing.xs },
+  inputFocused: { borderWidth: 1.5 },
+  inputError: { borderWidth: 1.5 },
+  error: { fontSize: 12, marginTop: spacing.xs, fontWeight: '500' },
+  hint: { ...typography.footnote, marginTop: spacing.xs },
 });

@@ -15,10 +15,16 @@ import { useAppColors } from '@/contexts/ThemeContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useProfile } from '@/hooks/useProfile';
 import { useGoals } from '@/hooks/useGoals';
-import { UserToggle } from '@/components/ui/UserToggle';
 import { Button } from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { scheduleGoalReminder, cancelGoalReminder, rescheduleAllGoalReminders } from '@/services/notifications';
+import {
+  scheduleGoalReminder,
+  cancelGoalReminder,
+  cancelGoalStreakReminder,
+  rescheduleAllGoalReminders,
+  schedulePartnerGoalReminders,
+  scheduleGoalStreakReminders,
+} from '@/services/notifications';
 import { isMilestone, nextMilestone, MILESTONES } from '@/services/goals';
 import { spacing, typography, colors, radius, shadows } from '@/theme';
 import type { GoalPeriodType, Goal, UserId } from '@/types';
@@ -125,29 +131,32 @@ function CheckInButton({
   onPress,
   color,
   loading,
-}: { done: boolean; onPress: () => void; color: string; loading: boolean }) {
+  disabled,
+}: { done: boolean; onPress: () => void; color: string; loading: boolean; disabled?: boolean }) {
   const scale = useRef(new Animated.Value(1)).current;
-
   function handlePress() {
+    if (disabled || loading) return;
     Animated.sequence([
       Animated.spring(scale, { toValue: 0.88, useNativeDriver: true, damping: 8, stiffness: 500 }),
-      Animated.spring(scale, { toValue: 1,    useNativeDriver: true, damping: 12, stiffness: 300 }),
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 12, stiffness: 300 }),
     ]).start();
     onPress();
   }
-
   return (
-    <Pressable
-      onPress={handlePress}
-      disabled={loading}
-      hitSlop={12}
-      style={ci.pressable}
-    >
-      <Animated.View style={[ci.btn, done && { backgroundColor: color }, { transform: [{ scale }] }]} collapsable={false}>
+    <Pressable onPress={handlePress} disabled={loading || disabled} hitSlop={12} style={ci.pressable}>
+      <Animated.View
+        style={[
+          ci.btn,
+          done && { backgroundColor: color },
+          disabled && !done && { opacity: 0.4 },
+          { transform: [{ scale }] },
+        ]}
+        collapsable={false}
+      >
         {loading ? (
           <ActivityIndicator size="small" color={done ? '#fff' : color} />
         ) : done ? (
-          <Ionicons name="checkmark" size={22} color="#fff" />
+          <Ionicons name="checkmark" size={16} color="#fff" />
         ) : (
           <View style={[ci.circle, { borderColor: hexToRgba(color, 0.5) }]} />
         )}
@@ -156,9 +165,9 @@ function CheckInButton({
   );
 }
 const ci = StyleSheet.create({
-  pressable: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  btn:    { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  circle: { width: 26, height: 26, borderRadius: 13, borderWidth: 2.5 },
+  pressable: { minWidth: 32, minHeight: 32, alignItems: 'center', justifyContent: 'center' },
+  btn:    { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  circle: { width: 18, height: 18, borderRadius: 9, borderWidth: 2 },
 });
 
 // ─── MilestoneModal ───────────────────────────────────────────────────────────
@@ -240,6 +249,8 @@ function HabitCard({
   onUncheck,
   onDelete,
   onEdit,
+  currentPeriodAmount,
+  onLogMetric,
 }: {
   habit: Goal;
   myUserId: UserId;
@@ -255,6 +266,8 @@ function HabitCard({
   onUncheck: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  currentPeriodAmount?: (habitId: string, owner: UserId, periodType: GoalPeriodType) => number;
+  onLogMetric?: (goal: Goal, amount: number) => Promise<unknown>;
 }) {
   const appColors  = useAppColors();
   const { getUserColor, getUserName } = useTheme();
@@ -262,7 +275,14 @@ function HabitCard({
   const color      = isMyCard ? myColor : partnerColor;
   const [expanded, setExpanded] = useState(false);
   const [checkLoading, setCheckLoading] = useState(false);
+  const [showLogMetricModal, setShowLogMetricModal] = useState(false);
+  const [metricInput, setMetricInput] = useState('');
   const expandAnim = useRef(new Animated.Value(0)).current;
+
+  const isMetric = habit.metric_target != null;
+  const periodAmount = isMetric && currentPeriodAmount
+    ? currentPeriodAmount(habit.id, isMyCard ? myUserId : partnerId, habit.period_type)
+    : 0;
 
   useEffect(() => {
     Animated.spring(expandAnim, { toValue: expanded ? 1 : 0, useNativeDriver: false, damping: 20, stiffness: 200 }).start();
@@ -275,6 +295,12 @@ function HabitCard({
     ? Math.min(habit.current_streak / next, 1)
     : 1;
 
+  const todayIsActive = (() => {
+    if (!habit.active_days || habit.active_days.length === 0) return true;
+    const dow = new Date().getDay(); // 0=Sun..6=Sat
+    return habit.active_days.includes(dow);
+  })();
+
   async function handleCheckIn() {
     setCheckLoading(true);
     try { await onCheckIn(); } finally { setCheckLoading(false); }
@@ -283,26 +309,56 @@ function HabitCard({
     setCheckLoading(true);
     try { await onUncheck(); } finally { setCheckLoading(false); }
   }
-
+  async function handleLogMetric() {
+    const n = Number(metricInput.replace(/,/g, '.'));
+    if (!onLogMetric || !Number.isFinite(n) || n <= 0) return;
+    setCheckLoading(true);
+    try {
+      await onLogMetric(habit, n);
+      setMetricInput('');
+      setShowLogMetricModal(false);
+    } finally {
+      setCheckLoading(false);
+    }
+  }
   return (
     <GlassCard style={hc.card} accentColor={color}>
-      {/* Main row: left part toggles expand; check-in button is separate so taps register */}
+      {/* Main row: flame (streak) | title/meta | check (daily only) | Add (metric) or partner dot */}
       <View style={hc.topRow} pointerEvents="box-none">
         <Pressable onPress={() => setExpanded(e => !e)} style={hc.topRowPressable}>
-          {/* Habit badge (first letter when no emoji) */}
-          <View style={[hc.emojiBadge, { backgroundColor: hexToRgba(color, 0.14) }]}>
-            <Text style={{ fontSize: 22, color, fontWeight: '700' }}>
-              {habit.emoji || (habit.title ? habit.title[0].toUpperCase() : '')}
-            </Text>
+          {/* Streak + flame — left */}
+          <View style={hc.streakCol}>
+            <StreakFlame streak={habit.current_streak} color={color} size={22} />
+            <Text style={[hc.streakNum, { color }]}>{habit.current_streak}</Text>
           </View>
-
-          {/* Title + meta */}
+          {/* Title + meta (metric progress and small Add in meta for metric goals) */}
           <View style={hc.mid}>
             <Text style={[hc.title, { color: appColors.label }]} numberOfLines={1}>{habit.title}</Text>
             <View style={hc.metaRow}>
               <Text style={[hc.period, { color: hexToRgba(color, 0.7) }]}>
                 {PERIOD_CONFIG[habit.period_type].label}
               </Text>
+              {isMetric && (
+                <>
+                  <Text style={[hc.metaMetric, { color: hexToRgba(color, 0.9) }]}>
+                    {periodAmount} / {habit.metric_target} {habit.metric_unit ?? ''}
+                  </Text>
+                  {checkedInMe ? (
+                    <View style={[hc.metricDoneBadge, { backgroundColor: color }]}>
+                      <Ionicons name="checkmark" size={10} color="#fff" />
+                    </View>
+                  ) : isMyCard && todayIsActive && onLogMetric ? (
+                    <Pressable
+                      onPress={() => setShowLogMetricModal(true)}
+                      style={[hc.metaAddBtn, { borderColor: hexToRgba(color, 0.4) }]}
+                      hitSlop={4}
+                    >
+                      <Ionicons name="add" size={12} color={color} />
+                      <Text style={[hc.metaAddText, { color }]}>Add</Text>
+                    </Pressable>
+                  ) : null}
+                </>
+              )}
               {habit.stake ? (
                 <View style={[hc.stakeBadge, { backgroundColor: hexToRgba('#F59E0B', 0.12) }]}>
                   <Ionicons name="trophy-outline" size={10} color="#F59E0B" />
@@ -310,25 +366,39 @@ function HabitCard({
                 </View>
               ) : null}
             </View>
-          </View>
-
-          {/* Streak + flame */}
-          <View style={hc.streakCol}>
-            <StreakFlame streak={habit.current_streak} color={color} size={22} />
-            <Text style={[hc.streakNum, { color }]}>{habit.current_streak}</Text>
+            {/* Today: You ✓/— · Partner ✓/— (my habits only) */}
+            {isMyCard && (
+              <View style={hc.todayRow}>
+                <Text style={[hc.todayLabel, { color: appColors.labelTertiary }]}>
+                  Today: You {checkedInMe ? '✓' : '—'} · {partnerName} {checkedInPartner ? '✓' : '—'}
+                </Text>
+              </View>
+            )}
           </View>
         </Pressable>
 
-        {/* Check-in button (only for my own habits) — wrapped so it never shrinks and stays tappable */}
-        {isMyCard && (
+        {/* Check button — daily non-metric only (right of title/meta) */}
+        {isMyCard && !isMetric && habit.period_type === 'daily' && (
           <View style={hc.checkInWrap}>
             <CheckInButton
               done={checkedInMe}
               onPress={checkedInMe ? handleUncheck : handleCheckIn}
               color={color}
               loading={checkLoading}
+              disabled={!todayIsActive}
             />
           </View>
+        )}
+
+        {/* Add button — for metric/continuous goals (always show so you can log quantity) */}
+        {isMyCard && isMetric && onLogMetric && todayIsActive && (
+          <Pressable
+            onPress={() => setShowLogMetricModal(true)}
+            style={[hc.addBtnRight, { backgroundColor: hexToRgba(color, 0.15), borderColor: hexToRgba(color, 0.4) }]}
+          >
+            <Ionicons name="add" size={20} color={color} />
+            <Text style={[hc.addBtnRightText, { color }]}>Add</Text>
+          </Pressable>
         )}
 
         {/* Partner done indicator */}
@@ -338,6 +408,45 @@ function HabitCard({
           </View>
         )}
       </View>
+
+      {/* Log metric modal — opened from Add on card */}
+        {isMyCard && isMetric && (
+          <Modal visible={showLogMetricModal} transparent animationType="fade" onRequestClose={() => setShowLogMetricModal(false)}>
+            <Pressable style={hc.logMetricModalOverlay} onPress={() => setShowLogMetricModal(false)}>
+              <Pressable style={[hc.logMetricModalBox, { backgroundColor: appColors.surface }]} onPress={() => {}}>
+                <Text style={[hc.logMetricModalTitle, { color: appColors.label }]}>Log progress</Text>
+                <Text style={[hc.logMetricModalSub, { color: appColors.labelSecondary }]}>
+                  {habit.title} — {periodAmount} / {habit.metric_target} {habit.metric_unit ?? ''}
+                </Text>
+                <View style={[hc.logMetricInputWrap, { borderColor: hexToRgba(color, 0.3) }]}>
+                  <RNTextInput
+                    value={metricInput}
+                    onChangeText={setMetricInput}
+                    placeholder="Amount"
+                    placeholderTextColor={appColors.labelTertiary}
+                    keyboardType="decimal-pad"
+                    style={[hc.logMetricInput, { color: appColors.label }]}
+                    returnKeyType="done"
+                    onSubmitEditing={handleLogMetric}
+                    autoFocus
+                  />
+                  <Text style={[hc.logMetricUnit, { color: appColors.labelTertiary }]}>{habit.metric_unit ?? ''}</Text>
+                </View>
+                <View style={hc.logMetricModalActions}>
+                  <Button title="Cancel" onPress={() => { setShowLogMetricModal(false); setMetricInput(''); }} variant="ghost" color={appColors.labelSecondary} size="md" style={{ flex: 1 }} />
+                  <Button
+                    title="Add"
+                    onPress={handleLogMetric}
+                    color={color}
+                    size="md"
+                    style={{ flex: 1 }}
+                    disabled={checkLoading || !metricInput.trim() || !(Number(metricInput.replace(/,/g, '.')) > 0)}
+                  />
+                </View>
+              </Pressable>
+            </Pressable>
+          </Modal>
+        )}
 
       {/* Progress bar toward next milestone */}
       {habit.current_streak > 0 && (
@@ -382,29 +491,53 @@ function HabitCard({
             </View>
           </View>
 
-          {/* Mini calendar — my check-ins */}
+          {/* Schedule + metric info */}
+          {(habit.active_days && habit.active_days.length > 0) || habit.metric_target != null ? (
+            <View style={{ marginBottom: spacing.lg, gap: spacing.xs + 2 }}>
+              {habit.active_days && habit.active_days.length > 0 && (
+                <Text style={[hc.metaDetail, { color: hexToRgba(color, 0.7) }]}>
+                  Active:{' '}
+                  {habit.active_days.length === 7
+                    ? 'Every day'
+                    : habit.active_days
+                        .slice()
+                        .sort((a, b) => a - b)
+                        .map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]!)
+                        .join(', ')}
+                </Text>
+              )}
+              {habit.metric_target != null && (
+                <Text style={[hc.metaDetail, { color: hexToRgba(color, 0.7) }]}>
+                  Target:{' '}
+                  {habit.metric_target}{' '}
+                  {habit.metric_unit ?? ''}
+                  {habit.metric_unit ? '' : ''}
+                  {PERIOD_CONFIG[habit.period_type].shortLabel && ` / ${PERIOD_CONFIG[habit.period_type].shortLabel}`}
+                </Text>
+              )}
+              {!todayIsActive && (
+                <Text style={[hc.metaDetail, { color: hexToRgba(color, 0.7) }]}>
+                  Today is a rest day for this habit.
+                </Text>
+              )}
+              {isMyCard && habit.metric_target != null && todayIsActive && onLogMetric && (
+                <Pressable
+                  onPress={() => setShowLogMetricModal(true)}
+                  style={[hc.logMetricBtnDetail, { backgroundColor: hexToRgba(color, 0.14), borderColor: hexToRgba(color, 0.35) }]}
+                >
+                  <Ionicons name="add" size={18} color={color} />
+                  <Text style={[hc.logMetricBtnText, { color }]}>Log quantity</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : null}
+
+          {/* Mini calendar — last 28 days */}
           <Text style={[hc.calLabel, { color: hexToRgba(color, 0.6) }]}>
             {isMyCard ? 'Your' : getUserName(habit.owner as UserId) + "'s"} last 28 days
           </Text>
           <MiniCalendar dates={isMyCard ? recentDatesMe : recentDatesPartner} color={color} />
 
-          {/* Accountability: partner check-ins on same habit if it's mine */}
-          {isMyCard && (
-            <>
-              <Text style={[hc.calLabel, { color: hexToRgba(partnerColor, 0.6), marginTop: spacing.md }]}>
-                {partnerName}'s check-ins
-              </Text>
-              <MiniCalendar dates={recentDatesPartner} color={partnerColor} />
-              <View style={hc.partnerStatusRow}>
-                <View style={[hc.partnerAvatar, { backgroundColor: hexToRgba(partnerColor, 0.14) }]}>
-                  <Ionicons name={checkedInPartner ? 'checkmark' : 'time-outline'} size={14} color={partnerColor} />
-                </View>
-                <Text style={[hc.partnerStatusText, { color: appColors.labelSecondary }]}>
-                  {partnerName} {checkedInPartner ? 'checked in today!' : 'hasn\'t checked in yet'}
-                </Text>
-              </View>
-            </>
-          )}
 
           {/* Actions */}
           {isMyCard && (
@@ -430,16 +563,35 @@ const hc = StyleSheet.create({
   topRow:       { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md + 2 },
   topRowPressable: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.md, minWidth: 0 },
   checkInWrap:  { flexShrink: 0, zIndex: 2 },
-  emojiBadge:   { width: 46, height: 46, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   mid:          { flex: 1 },
   title:        { ...typography.bodyEmphasis, marginBottom: 3 },
   metaRow:      { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  todayRow:     { marginTop: 2 },
+  todayLabel:   { ...typography.caption, fontSize: 11 },
   period:       { ...typography.caption },
+  metaMetric:   { ...typography.caption, fontWeight: '700' },
+  metaAddBtn:   { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.xs, borderWidth: 1 },
+  metaAddText:  { fontSize: 11, fontWeight: '700' },
   stakeBadge:   { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.xs },
   stakeText:    { fontSize: 10, fontWeight: '600', color: '#F59E0B', maxWidth: 100 },
   streakCol:    { alignItems: 'center', gap: 1, minWidth: 36 },
   streakNum:    { fontSize: 13, fontWeight: '700' },
   partnerDot:   { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  addBtnRight:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.md, borderWidth: 1.5 },
+  addBtnRightText: { fontSize: 13, fontWeight: '700' },
+
+  metricDoneBadge:  { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  logMetricBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.sm, borderWidth: 1.5 },
+  logMetricBtnDetail: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1.5, marginTop: spacing.sm },
+  logMetricBtnText: { fontSize: 12, fontWeight: '700' },
+  logMetricModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  logMetricModalBox: { width: '100%', maxWidth: 320, borderRadius: radius.xl, padding: spacing.xl, ...shadows.lg },
+  logMetricModalTitle: { ...typography.title3, marginBottom: spacing.xs },
+  logMetricModalSub: { ...typography.footnote, marginBottom: spacing.md },
+  logMetricInputWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderRadius: radius.md, paddingHorizontal: spacing.md, marginBottom: spacing.lg },
+  logMetricInput: { flex: 1, ...typography.body, paddingVertical: spacing.sm },
+  logMetricUnit: { ...typography.caption, marginLeft: spacing.sm },
+  logMetricModalActions: { flexDirection: 'row', gap: spacing.md },
 
   progressWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md + 2, paddingBottom: spacing.sm },
   progressBg:   { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
@@ -460,6 +612,7 @@ const hc = StyleSheet.create({
   actions:           { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   actionBtn:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, paddingVertical: spacing.sm, borderRadius: radius.md },
   actionBtnText:     { ...typography.subhead },
+  metaDetail:        { ...typography.caption },
 });
 
 // ─── AddHabitModal ────────────────────────────────────────────────────────────
@@ -473,7 +626,16 @@ function AddHabitModal({
 }: {
   visible: boolean;
   onClose: () => void;
-  onAdd: (title: string, emoji: string, period: GoalPeriodType, reminder: boolean, stake: string) => void;
+  onAdd: (
+    title: string,
+    emoji: string,
+    period: GoalPeriodType,
+    reminder: boolean,
+    stake: string,
+    activeDays: number[] | null,
+    metricTarget: number | null,
+    metricUnit: string | null,
+  ) => void;
   userColor: string;
   notifTimeDisplay: string;
 }) {
@@ -483,12 +645,38 @@ function AddHabitModal({
   const [period, setPeriod] = useState<GoalPeriodType>('daily');
   const [reminder, setReminder] = useState(true);
   const [stake, setStake]   = useState('');
+  const [activeDays, setActiveDays] = useState<number[]>([0,1,2,3,4,5,6]);
+  const [useMetric, setUseMetric] = useState(false);
+  const [metricTarget, setMetricTarget] = useState<string>('');
+  const [metricUnit, setMetricUnit] = useState<string>('');
 
-  function reset() { setTitle(''); setEmoji(''); setPeriod('daily'); setReminder(true); setStake(''); }
+  function reset() {
+    setTitle('');
+    setEmoji('');
+    setPeriod('daily');
+    setReminder(true);
+    setStake('');
+    setActiveDays([0,1,2,3,4,5,6]);
+    setUseMetric(false);
+    setMetricTarget('');
+    setMetricUnit('');
+  }
 
   function handleAdd() {
     if (!title.trim()) return;
-    onAdd(title.trim(), emoji, period, reminder, stake.trim());
+    const trimmedTitle = title.trim();
+    const trimmedStake = stake.trim();
+    const parsedTarget = useMetric && metricTarget.trim() !== '' ? Number(metricTarget) : null;
+    onAdd(
+      trimmedTitle,
+      emoji,
+      period,
+      reminder,
+      trimmedStake,
+      period === 'daily' ? (activeDays.length === 7 ? null : activeDays) : null,
+      useMetric && parsedTarget != null && !Number.isNaN(parsedTarget) ? parsedTarget : null,
+      useMetric && metricUnit.trim() ? metricUnit.trim() : null,
+    );
     reset();
   }
 
@@ -533,6 +721,87 @@ function AddHabitModal({
                 </Pressable>
               ))}
             </View>
+
+            {/* Active days (for daily habits) */}
+            {period === 'daily' && (
+              <>
+                <Text style={[am.label, { color: appColors.labelSecondary }]}>Days of week</Text>
+                <View style={am.daysRow}>
+                  {['S','M','T','W','T','F','S'].map((label, idx) => {
+                    const selected = activeDays.includes(idx);
+                    return (
+                      <Pressable
+                        key={idx}
+                        onPress={() =>
+                          setActiveDays((prev) =>
+                            prev.includes(idx) ? prev.filter((d) => d !== idx) : [...prev, idx].sort((a, b) => a - b),
+                          )
+                        }
+                        style={[
+                          am.dayChip,
+                          selected && { backgroundColor: hexToRgba(userColor, 0.18), borderColor: userColor },
+                        ]}
+                      >
+                        <Text style={[am.dayChipText, selected && { color: userColor }]}>{label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            {/* Metric settings */}
+            <Pressable
+              onPress={() => setUseMetric((v) => !v)}
+              style={[
+                am.metricToggleRow,
+                { borderColor: useMetric ? hexToRgba(userColor, 0.3) : 'rgba(0,0,0,0.08)', backgroundColor: useMetric ? hexToRgba(userColor, 0.06) : 'transparent' },
+              ]}
+            >
+              <Ionicons
+                name={useMetric ? 'stats-chart' : 'stats-chart-outline'}
+                size={20}
+                color={useMetric ? userColor : appColors.labelTertiary}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={[am.reminderLabel, { color: useMetric ? userColor : appColors.label }]}>
+                  Track a number
+                </Text>
+                <Text style={[am.reminderSub, { color: appColors.labelTertiary }]}>
+                  e.g. 10 miles, 8 glasses, 20 pages
+                </Text>
+              </View>
+            </Pressable>
+
+            {useMetric && (
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg }}>
+                <View style={[am.inputWrap, { flex: 1, borderColor: hexToRgba(userColor, 0.3), backgroundColor: hexToRgba(userColor, 0.04) }]}>
+                  <RNTextInput
+                    value={metricTarget}
+                    onChangeText={setMetricTarget}
+                    placeholder="Target"
+                    keyboardType="numeric"
+                    placeholderTextColor={appColors.labelTertiary}
+                    style={[am.input, { color: appColors.label }]}
+                    selectionColor={userColor}
+                    returnKeyType="done"
+                    maxLength={6}
+                  />
+                </View>
+                <View style={[am.inputWrap, { flex: 1, borderColor: hexToRgba(userColor, 0.15), backgroundColor: hexToRgba(userColor, 0.02) }]}>
+                  <RNTextInput
+                    value={metricUnit}
+                    onChangeText={setMetricUnit}
+                    placeholder="Unit (miles, pages)"
+                    placeholderTextColor={appColors.labelTertiary}
+                    style={[am.input, { color: appColors.label }]}
+                    selectionColor={userColor}
+                    returnKeyType="done"
+                    maxLength={20}
+                  />
+                </View>
+              </View>
+            )}
 
             {/* Accountability stake */}
             <Text style={[am.label, { color: appColors.labelSecondary }]}>
@@ -593,63 +862,397 @@ const am = StyleSheet.create({
   chipRow:     { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
   chip:        { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.10)' },
   chipText:    { ...typography.subhead, color: colors.label },
+  daysRow:     { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.lg },
+  dayChip:     { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.10)', backgroundColor: 'rgba(0,0,0,0.02)' },
+  dayChipText: { ...typography.subhead, fontSize: 13, color: colors.labelTertiary },
   reminderRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, borderWidth: 1.5, marginBottom: spacing.xl },
   reminderLabel:{ ...typography.bodyEmphasis },
   reminderSub:  { ...typography.caption, marginTop: 2 },
   toggle:      { paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm },
   toggleText:  { fontSize: 12, fontWeight: '700', color: '#fff' },
+  metricToggleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, borderWidth: 1.5, marginBottom: spacing.md },
   btnRow:      { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
 });
 
-// ─── SummaryBanner — today's progress ────────────────────────────────────────
+// ─── EditHabitModal ─────────────────────────────────────────────────────────────
 
-function SummaryBanner({ goals, isCheckedIn, userColor, partnerColor, partnerName, userId, partnerId }:
-  { goals: Goal[]; isCheckedIn: (id: string, owner: UserId) => boolean; userColor: string; partnerColor: string; partnerName: string; userId: UserId; partnerId: UserId }
-) {
-  const myTotal   = goals.length;
-  const myDone    = goals.filter((g) => isCheckedIn(g.id, userId)).length;
-  const partDone  = goals.filter((g) => isCheckedIn(g.id, partnerId)).length;
-  const allDone   = myDone === myTotal && myTotal > 0;
+function EditHabitModal({
+  visible,
+  goal,
+  onClose,
+  onSave,
+  userColor,
+}: {
+  visible: boolean;
+  goal: Goal | null;
+  onClose: () => void;
+  onSave: (
+    title: string,
+    emoji: string,
+    period: GoalPeriodType,
+    reminder: boolean,
+    stake: string,
+    activeDays: number[] | null,
+    metricTarget: number | null,
+    metricUnit: string | null,
+  ) => void;
+  userColor: string;
+}) {
+  const appColors = useAppColors();
+
+  const [title, setTitle] = useState('');
+  const [emoji, setEmoji] = useState('');
+  const [period, setPeriod] = useState<GoalPeriodType>('daily');
+  const [reminder, setReminder] = useState(true);
+  const [stake, setStake] = useState('');
+  const [activeDays, setActiveDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
+  const [useMetric, setUseMetric] = useState(false);
+  const [metricTarget, setMetricTarget] = useState<string>('');
+  const [metricUnit, setMetricUnit] = useState<string>('');
+
+  useEffect(() => {
+    if (!visible || !goal) return;
+    setTitle(goal.title);
+    setEmoji(goal.emoji ?? '');
+    setPeriod(goal.period_type);
+    setReminder(goal.reminder_enabled);
+    setStake(goal.stake ?? '');
+    if (goal.period_type === 'daily' && goal.active_days && goal.active_days.length > 0) {
+      setActiveDays([...goal.active_days].sort((a, b) => a - b));
+    } else {
+      setActiveDays([0, 1, 2, 3, 4, 5, 6]);
+    }
+    if (goal.metric_target != null) {
+      setUseMetric(true);
+      setMetricTarget(String(goal.metric_target));
+      setMetricUnit(goal.metric_unit ?? '');
+    } else {
+      setUseMetric(false);
+      setMetricTarget('');
+      setMetricUnit('');
+    }
+  }, [visible, goal]);
+
+  function handleSave() {
+    if (!goal) return;
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) return;
+    const trimmedStake = stake.trim();
+    const parsedTarget = useMetric && metricTarget.trim() !== '' ? Number(metricTarget) : null;
+
+    onSave(
+      trimmedTitle,
+      emoji,
+      period,
+      reminder,
+      trimmedStake,
+      period === 'daily'
+        ? activeDays.length === 7
+          ? null
+          : activeDays
+        : null,
+      useMetric && parsedTarget != null && !Number.isNaN(parsedTarget) ? parsedTarget : null,
+      useMetric && metricUnit.trim() ? metricUnit.trim() : null,
+    );
+  }
 
   return (
-    <GlassCard style={sb.card} accentColor={allDone ? userColor : undefined}>
-      <LinearGradient
-        colors={allDone ? [hexToRgba(userColor, 0.12), 'transparent'] : ['transparent', 'transparent']}
-        style={[StyleSheet.absoluteFill, { borderRadius: radius.xl }]}
-      />
-      <View style={sb.row}>
-        <View style={sb.half}>
-          <Text style={[sb.name, { color: userColor }]}>You</Text>
-          <Text style={[sb.fraction, { color: userColor }]}>{myDone}<Text style={sb.total}>/{myTotal}</Text></Text>
-          <Text style={sb.sub}>habits today</Text>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={am.overlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={[am.sheet, { backgroundColor: appColors.surface }]}>
+          <View style={am.handle} />
+          <Text style={[am.sheetTitle, { color: appColors.label }]}>Edit habit</Text>
+
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {/* Title */}
+            <Text style={[am.label, { color: appColors.labelSecondary }]}>Habit name</Text>
+            <View
+              style={[
+                am.inputWrap,
+                { borderColor: hexToRgba(userColor, 0.3), backgroundColor: hexToRgba(userColor, 0.04) },
+              ]}
+            >
+              <RNTextInput
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Habit name"
+                placeholderTextColor={appColors.labelTertiary}
+                style={[am.input, { color: appColors.label }]}
+                selectionColor={userColor}
+                returnKeyType="done"
+                maxLength={60}
+              />
+            </View>
+
+            {/* Frequency */}
+            <Text style={[am.label, { color: appColors.labelSecondary }]}>Frequency</Text>
+            <View style={am.chipRow}>
+              {(['daily', 'weekly', 'monthly'] as GoalPeriodType[]).map((p) => (
+                <Pressable
+                  key={p}
+                  onPress={() => setPeriod(p)}
+                  style={[
+                    am.chip,
+                    period === p && {
+                      backgroundColor: hexToRgba(userColor, 0.14),
+                      borderColor: userColor,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      am.chipText,
+                      period === p && { color: userColor, fontWeight: '700' },
+                    ]}
+                  >
+                    {PERIOD_CONFIG[p].label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Active days (for daily habits) */}
+            {period === 'daily' && (
+              <>
+                <Text style={[am.label, { color: appColors.labelSecondary }]}>Days of week</Text>
+                <View style={am.daysRow}>
+                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((label, idx) => {
+                    const selected = activeDays.includes(idx);
+                    return (
+                      <Pressable
+                        key={idx}
+                        onPress={() =>
+                          setActiveDays((prev) =>
+                            prev.includes(idx)
+                              ? prev.filter((d) => d !== idx)
+                              : [...prev, idx].sort((a, b) => a - b),
+                          )
+                        }
+                        style={[
+                          am.dayChip,
+                          selected && {
+                            backgroundColor: hexToRgba(userColor, 0.18),
+                            borderColor: userColor,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            am.dayChipText,
+                            selected && { color: userColor },
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            {/* Metric settings */}
+            <Pressable
+              onPress={() => setUseMetric((v) => !v)}
+              style={[
+                am.metricToggleRow,
+                {
+                  borderColor: useMetric
+                    ? hexToRgba(userColor, 0.3)
+                    : 'rgba(0,0,0,0.08)',
+                  backgroundColor: useMetric
+                    ? hexToRgba(userColor, 0.06)
+                    : 'transparent',
+                },
+              ]}
+            >
+              <Ionicons
+                name={useMetric ? 'stats-chart' : 'stats-chart-outline'}
+                size={20}
+                color={useMetric ? userColor : appColors.labelTertiary}
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    am.reminderLabel,
+                    { color: useMetric ? userColor : appColors.label },
+                  ]}
+                >
+                  Track a number
+                </Text>
+                <Text style={[am.reminderSub, { color: appColors.labelTertiary }]}>
+                  e.g. 10 miles, 8 glasses, 20 pages
+                </Text>
+              </View>
+            </Pressable>
+
+            {useMetric && (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  gap: spacing.sm,
+                  marginBottom: spacing.lg,
+                }}
+              >
+                <View
+                  style={[
+                    am.inputWrap,
+                    {
+                      flex: 1,
+                      borderColor: hexToRgba(userColor, 0.3),
+                      backgroundColor: hexToRgba(userColor, 0.04),
+                    },
+                  ]}
+                >
+                  <RNTextInput
+                    value={metricTarget}
+                    onChangeText={setMetricTarget}
+                    placeholder="Target"
+                    keyboardType="numeric"
+                    placeholderTextColor={appColors.labelTertiary}
+                    style={[am.input, { color: appColors.label }]}
+                    selectionColor={userColor}
+                    returnKeyType="done"
+                    maxLength={6}
+                  />
+                </View>
+                <View
+                  style={[
+                    am.inputWrap,
+                    {
+                      flex: 1,
+                      borderColor: hexToRgba(userColor, 0.15),
+                      backgroundColor: hexToRgba(userColor, 0.02),
+                    },
+                  ]}
+                >
+                  <RNTextInput
+                    value={metricUnit}
+                    onChangeText={setMetricUnit}
+                    placeholder="Unit (miles, pages)"
+                    placeholderTextColor={appColors.labelTertiary}
+                    style={[am.input, { color: appColors.label }]}
+                    selectionColor={userColor}
+                    returnKeyType="done"
+                    maxLength={20}
+                  />
+                </View>
+              </View>
+            )}
+
+            {/* Accountability stake */}
+            <Text style={[am.label, { color: appColors.labelSecondary }]}>
+              Accountability stake{' '}
+              <Text
+                style={{
+                  color: appColors.labelTertiary,
+                  fontWeight: '400',
+                }}
+              >
+                (optional)
+              </Text>
+            </Text>
+            <View
+              style={[
+                am.inputWrap,
+                {
+                  borderColor: hexToRgba('#F59E0B', 0.3),
+                  backgroundColor: hexToRgba('#F59E0B', 0.04),
+                },
+              ]}
+            >
+              <Ionicons
+                name="trophy-outline"
+                size={18}
+                color="#F59E0B"
+                style={{ marginRight: spacing.sm }}
+              />
+              <RNTextInput
+                value={stake}
+                onChangeText={setStake}
+                placeholder="e.g. Loser buys coffee"
+                placeholderTextColor={appColors.labelTertiary}
+                style={[am.input, { color: appColors.label }]}
+                selectionColor="#F59E0B"
+                returnKeyType="done"
+                maxLength={60}
+              />
+            </View>
+
+            {/* Reminder toggle */}
+            <Pressable
+              onPress={() => setReminder((v) => !v)}
+              style={[
+                am.reminderRow,
+                {
+                  borderColor: reminder
+                    ? hexToRgba(userColor, 0.3)
+                    : 'rgba(0,0,0,0.08)',
+                  backgroundColor: reminder
+                    ? hexToRgba(userColor, 0.06)
+                    : 'transparent',
+                },
+              ]}
+            >
+              <Ionicons
+                name={reminder ? 'notifications' : 'notifications-off'}
+                size={20}
+                color={reminder ? userColor : appColors.labelTertiary}
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    am.reminderLabel,
+                    { color: reminder ? userColor : appColors.label },
+                  ]}
+                >
+                  Daily reminder
+                </Text>
+                <Text style={[am.reminderSub, { color: appColors.labelTertiary }]}>
+                  Uses your profile reminder time
+                </Text>
+              </View>
+              <View
+                style={[
+                  am.toggle,
+                  {
+                    backgroundColor: reminder
+                      ? userColor
+                      : 'rgba(0,0,0,0.1)',
+                  },
+                ]}
+              >
+                <Text style={am.toggleText}>{reminder ? 'On' : 'Off'}</Text>
+              </View>
+            </Pressable>
+
+            <View style={am.btnRow}>
+              <Button
+                title="Cancel"
+                onPress={onClose}
+                variant="ghost"
+                color={appColors.labelSecondary}
+                size="md"
+                style={{ flex: 1 }}
+              />
+              <Button
+                title="Save changes"
+                onPress={handleSave}
+                color={userColor}
+                size="md"
+                style={{ flex: 1 }}
+                disabled={!title.trim()}
+              />
+            </View>
+            <View style={{ height: 40 }} />
+          </ScrollView>
         </View>
-        <View style={[sb.divider, { backgroundColor: 'rgba(0,0,0,0.07)' }]} />
-        <View style={sb.half}>
-          <Text style={[sb.name, { color: partnerColor }]}>{partnerName}</Text>
-          <Text style={[sb.fraction, { color: partnerColor }]}>{partDone}<Text style={sb.total}>/{myTotal}</Text></Text>
-          <Text style={sb.sub}>habits today</Text>
-        </View>
-      </View>
-      {allDone && (
-        <View style={[sb.allDone, { backgroundColor: hexToRgba(userColor, 0.10) }]}>
-          <Text style={[sb.allDoneText, { color: userColor }]}>All habits done today!</Text>
-        </View>
-      )}
-    </GlassCard>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
-const sb = StyleSheet.create({
-  card:        { marginHorizontal: spacing.lg, marginBottom: spacing.lg, overflow: 'hidden' },
-  row:         { flexDirection: 'row', alignItems: 'center', padding: spacing.lg },
-  half:        { flex: 1, alignItems: 'center' },
-  name:        { ...typography.subhead, marginBottom: 2 },
-  fraction:    { fontSize: 32, fontWeight: '800', letterSpacing: -1 },
-  total:       { fontSize: 18, fontWeight: '500', color: colors.labelTertiary },
-  sub:         { ...typography.caption, color: colors.labelTertiary },
-  divider:     { width: 1, height: 48, marginHorizontal: spacing.lg },
-  allDone:     { marginHorizontal: spacing.lg, marginBottom: spacing.md, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center' },
-  allDoneText: { ...typography.bodyEmphasis },
-});
+
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
@@ -668,6 +1271,8 @@ export default function HabitsScreen() {
     addGoal, update, remove,
     checkIn, uncheck,
     isCheckedIn, recentDates,
+    currentPeriodAmount,
+    logMetricProgress,
   } = useGoals(userId);
 
   // Modals
@@ -683,13 +1288,30 @@ export default function HabitsScreen() {
   // Silent refresh on focus so data stays fresh without a loading flash when closing modals or switching back
   useFocusEffect(useCallback(() => { refresh(true); }, [refresh]));
 
+  // Schedule partner goal and streak reminders when goals or notification time change
+  useEffect(() => {
+    const time = profile?.notification_time;
+    if (!time) return;
+    schedulePartnerGoalReminders(partnerGoals, partnerName, time).catch(() => {});
+    scheduleGoalStreakReminders(goals, time).catch(() => {});
+  }, [goals, partnerGoals, profile?.notification_time, partnerName]);
+
   // ── handlers ────────────────────────────────────────────────────────────────
 
   const notifTimeDisplay = profile?.notification_time
     ? formatTime(profile.notification_time)
     : '9:00 AM';
 
-  async function handleAdd(title: string, emoji: string, period: GoalPeriodType, reminder: boolean, stake: string) {
+  async function handleAdd(
+    title: string,
+    emoji: string,
+    period: GoalPeriodType,
+    reminder: boolean,
+    stake: string,
+    activeDays: number[] | null,
+    metricTarget: number | null,
+    metricUnit: string | null,
+  ) {
     const created = await addGoal({
       owner: userId,
       title,
@@ -697,6 +1319,9 @@ export default function HabitsScreen() {
       period_type: period,
       reminder_enabled: reminder,
       stake: stake || null,
+      active_days: activeDays,
+      metric_target: metricTarget,
+      metric_unit: metricUnit,
     });
     if (reminder && profile?.notification_time) {
       await scheduleGoalReminder(created.id, created.title, created.period_type, profile.notification_time);
@@ -711,7 +1336,7 @@ export default function HabitsScreen() {
         setMilestoneData({ streak: result.newStreak, title: goal.title });
       }
     } catch (e: any) {
-      Alert.alert('Check-in failed', e?.message ?? 'Could not save. Make sure the habit_completions table exists (run supabase_migration_habits.sql).');
+      Alert.alert('Error', e?.message ?? 'Could not save.');
     }
   }
 
@@ -720,9 +1345,34 @@ export default function HabitsScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
         await cancelGoalReminder(goal.id);
+        await cancelGoalStreakReminder(goal.id);
         await remove(goal.id);
       }},
     ]);
+  }
+
+  async function handleEditSave(
+    goal: Goal,
+    title: string,
+    emoji: string,
+    period: GoalPeriodType,
+    reminder: boolean,
+    stake: string,
+    activeDays: number[] | null,
+    metricTarget: number | null,
+    metricUnit: string | null,
+  ) {
+    await update(goal.id, {
+      title,
+      emoji,
+      period_type: period,
+      reminder_enabled: reminder,
+      stake: stake || null,
+      active_days: period === 'daily' ? activeDays : null,
+      metric_target: metricTarget,
+      metric_unit: metricUnit,
+    });
+    setEditingGoal(null);
   }
 
   async function handleSaveNotif() {
@@ -744,8 +1394,8 @@ export default function HabitsScreen() {
   // ── render ───────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={[s.safe, { backgroundColor: appColors.background }]} edges={['top']}>
-      {/* Header */}
+    <SafeAreaView style={[s.safe, { backgroundColor: appColors.surface }]} edges={['top']}>
+      {/* Header — same color as Dynamic Island / status bar area */}
       <View style={[s.header, { backgroundColor: appColors.surface }]}>
         <View style={s.headerLeft}>
           <LinearGradient
@@ -766,10 +1416,11 @@ export default function HabitsScreen() {
           <Pressable onPress={openNotif} style={s.settingsBtn} hitSlop={8}>
             <Ionicons name="notifications-outline" size={20} color={appColors.labelSecondary} />
           </Pressable>
-          <UserToggle />
         </View>
       </View>
 
+      {/* Main content — background so island/header stay surface */}
+      <View style={[s.contentWrap, { backgroundColor: appColors.background }]}>
       {loading ? (
         <View style={s.loader}><ActivityIndicator color={userColor} size="large" /></View>
       ) : (
@@ -778,18 +1429,6 @@ export default function HabitsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={s.content}
         >
-          {/* Today's progress banner */}
-          {goals.length > 0 && (
-            <SummaryBanner
-              goals={goals}
-              isCheckedIn={isCheckedIn}
-              userColor={userColor}
-              partnerColor={partnerColor}
-              partnerName={partnerName}
-              userId={userId}
-              partnerId={partnerId}
-            />
-          )}
 
           {/* MY HABITS */}
           <View style={s.sectionHeader}>
@@ -830,17 +1469,20 @@ export default function HabitsScreen() {
                 partnerName={partnerName}
                 partnerColor={partnerColor}
                 isMyCard
-                checkedInMe={isCheckedIn(g.id, userId)}
-                checkedInPartner={isCheckedIn(g.id, partnerId)}
+                checkedInMe={isCheckedIn(g.id, userId, g)}
+                checkedInPartner={isCheckedIn(g.id, partnerId, g)}
                 recentDatesMe={recentDates(g.id, userId)}
                 recentDatesPartner={recentDates(g.id, partnerId)}
                 onCheckIn={() => handleCheckIn(g)}
                 onUncheck={() => uncheck(g)}
                 onDelete={() => handleDelete(g)}
                 onEdit={() => setEditingGoal(g)}
+                currentPeriodAmount={currentPeriodAmount}
+                onLogMetric={logMetricProgress}
               />
             ))
           )}
+
 
           {/* PARTNER'S HABITS */}
           {partnerGoals.length > 0 && (
@@ -859,14 +1501,15 @@ export default function HabitsScreen() {
                   partnerName={partnerName}
                   partnerColor={partnerColor}
                   isMyCard={false}
-                  checkedInMe={isCheckedIn(g.id, userId)}
-                  checkedInPartner={isCheckedIn(g.id, partnerId)}
+                  checkedInMe={isCheckedIn(g.id, userId, g)}
+                  checkedInPartner={isCheckedIn(g.id, partnerId, g)}
                   recentDatesMe={recentDates(g.id, userId)}
                   recentDatesPartner={recentDates(g.id, partnerId)}
                   onCheckIn={() => {}}
                   onUncheck={() => {}}
                   onDelete={() => {}}
                   onEdit={() => {}}
+                  currentPeriodAmount={currentPeriodAmount}
                 />
               ))}
             </>
@@ -883,6 +1526,28 @@ export default function HabitsScreen() {
         onAdd={handleAdd}
         userColor={userColor}
         notifTimeDisplay={notifTimeDisplay}
+      />
+
+      {/* Edit habit modal */}
+      <EditHabitModal
+        visible={!!editingGoal}
+        goal={editingGoal}
+        onClose={() => setEditingGoal(null)}
+        onSave={(title, emoji, period, reminder, stake, activeDays, metricTarget, metricUnit) =>
+          editingGoal &&
+          handleEditSave(
+            editingGoal,
+            title,
+            emoji,
+            period,
+            reminder,
+            stake,
+            activeDays,
+            metricTarget,
+            metricUnit,
+          )
+        }
+        userColor={userColor}
       />
 
       {/* Milestone celebration modal */}
@@ -923,13 +1588,15 @@ export default function HabitsScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      </View>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  safe:   { flex: 1 },
-  loader: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  safe:        { flex: 1 },
+  contentWrap: { flex: 1 },
+  loader:      { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll: { flex: 1 },
   content:{ paddingTop: spacing.lg, paddingBottom: spacing.xxxl },
 

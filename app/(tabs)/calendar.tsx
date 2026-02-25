@@ -17,6 +17,8 @@ import {
 import { useUserMode } from '@/contexts/UserModeContext';
 import { useAppColors } from '@/contexts/ThemeContext';
 import { useEvents } from '@/hooks/useEvents';
+import { useProfile } from '@/hooks/useProfile';
+import { rescheduleEventReminders } from '@/services/notifications';
 import { WeekStrip } from '@/components/calendar/WeekStrip';
 import { DayCell } from '@/components/calendar/MonthView';
 import { formatDate, isSameDay, formatMonthYear, formatTime } from '@/utils/date';
@@ -26,7 +28,7 @@ import { SelectedDayList } from '@/components/calendar/SelectedDayList';
 import { Sheet } from '@/components/ui/Sheet';
 import { EventForm, EventFormData } from '@/components/calendar/EventForm';
 import { UserToggle } from '@/components/ui/UserToggle';
-import { spacing, typography, colors, radius, shadows } from '@/theme';
+import { spacing, typography, radius, shadows } from '@/theme';
 import { playTrash } from '@/utils/sounds';
 import { USER_NAMES } from '@/utils/colors';
 import type { EventOccurrence } from '@/types';
@@ -54,6 +56,7 @@ type YearRowProps = {
   accentColor: string;
   onSelectDate: (d: Date) => void;
   today: Date;
+  appColors: { surface: string; label: string; labelQuaternary: string };
 };
 
 const YearRow = memo(function YearRow({
@@ -65,9 +68,10 @@ const YearRow = memo(function YearRow({
   accentColor,
   onSelectDate,
   today,
+  appColors,
 }: YearRowProps) {
   return (
-    <View style={[yearRowStyle, { height: YEAR_ROW_HEIGHT }]}>
+    <View style={[yearRowStyle, { height: YEAR_ROW_HEIGHT, backgroundColor: appColors.surface }]}>
       {week.map((day) => {
         const key = formatDate(day);
         const events = occurrencesByDate[key] ?? EMPTY_EVENTS;
@@ -81,6 +85,7 @@ const YearRow = memo(function YearRow({
             events={events}
             accentColor={accentColor}
             onSelectDate={onSelectDate}
+            appColors={appColors}
           />
         );
       })}
@@ -92,7 +97,6 @@ const yearRowStyle = {
   flexDirection: 'row' as const,
   alignItems: 'center' as const,
   paddingHorizontal: spacing.xs,
-  backgroundColor: colors.surface,
 };
 
 const MONTH_BORDER_WIDTH = 2;
@@ -100,6 +104,7 @@ const MONTH_BORDER_WIDTH = 2;
 type MonthBlockProps = Omit<YearRowProps, 'week'> & {
   weeks: Date[][];
   borderColor: string;
+  appColors: { surface: string; label: string; labelQuaternary: string };
 };
 
 const MonthBlock = memo(function MonthBlock({
@@ -112,9 +117,10 @@ const MonthBlock = memo(function MonthBlock({
   accentColor,
   onSelectDate,
   today,
+  appColors,
 }: MonthBlockProps) {
   return (
-    <View style={[monthBlockStyle, { borderColor }]}>
+    <View style={[monthBlockStyle, { borderColor, backgroundColor: appColors.surface }]}>
       {weeks.map((week, i) => (
         <YearRow
           key={i}
@@ -126,6 +132,7 @@ const MonthBlock = memo(function MonthBlock({
           accentColor={accentColor}
           onSelectDate={onSelectDate}
           today={today}
+          appColors={appColors}
         />
       ))}
     </View>
@@ -134,7 +141,6 @@ const MonthBlock = memo(function MonthBlock({
 
 const monthBlockStyle = {
   borderWidth: MONTH_BORDER_WIDTH,
-  backgroundColor: colors.surface,
 };
 
 const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 84 : 64;
@@ -163,7 +169,7 @@ function EventDetailSheet({
   }
 
   return (
-    <View style={edStyles.wrap}>
+    <View style={[edStyles.wrap, { backgroundColor: appColors.surface }]}>
       {/* Header band with event color */}
       <View style={[edStyles.headerBand, { backgroundColor: event.color }]}>
         <View style={edStyles.headerContent}>
@@ -185,7 +191,7 @@ function EventDetailSheet({
             <Ionicons name={event.all_day ? 'calendar-outline' : 'time-outline'} size={20} color={event.color} />
           </View>
           <View style={edStyles.infoTextWrap}>
-            <Text style={edStyles.infoLabel}>When</Text>
+            <Text style={[edStyles.infoLabel, { color: appColors.labelTertiary }]}>When</Text>
             <Text style={[edStyles.infoValue, { color: appColors.label }]}>
               {event.all_day ? 'All day' : `${formatTime(event.start_at)} – ${formatTime(event.end_at)}`}
             </Text>
@@ -193,12 +199,12 @@ function EventDetailSheet({
         </View>
 
         {event.notes ? (
-          <View style={[edStyles.infoRow, { backgroundColor: colors.fillSecondary }]}>
+          <View style={[edStyles.infoRow, { backgroundColor: appColors.fillSecondary }]}>
             <View style={[edStyles.infoIconWrap, { backgroundColor: appColors.separator }]}>
               <Ionicons name="document-text-outline" size={18} color={appColors.labelSecondary} />
             </View>
             <View style={edStyles.infoTextWrap}>
-              <Text style={edStyles.infoLabel}>Notes</Text>
+              <Text style={[edStyles.infoLabel, { color: appColors.labelTertiary }]}>Notes</Text>
               <Text style={[edStyles.infoValue, edStyles.notesValue, { color: appColors.labelSecondary }]} numberOfLines={4}>
                 {event.notes}
               </Text>
@@ -226,7 +232,7 @@ function EventDetailSheet({
   );
 }
 const edStyles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: colors.surface },
+  wrap: { flex: 1 },
   headerBand: {
     paddingTop: spacing.xl,
     paddingBottom: spacing.xxl,
@@ -255,7 +261,7 @@ const edStyles = StyleSheet.create({
   },
   infoIconWrap: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   infoTextWrap: { flex: 1, gap: 2 },
-  infoLabel: { ...typography.caption, color: colors.labelTertiary, textTransform: 'uppercase', letterSpacing: 0.4 },
+  infoLabel: { ...typography.caption, textTransform: 'uppercase', letterSpacing: 0.4 },
   infoValue: { ...typography.body, fontWeight: '500' },
   notesValue: { ...typography.footnote },
   actions: { flexDirection: 'row', gap: spacing.md, marginTop: 'auto', paddingTop: spacing.xl },
@@ -282,7 +288,8 @@ const SCROLL_COLLAPSE_THRESHOLD = 80;
 const SCROLL_EXPAND_THRESHOLD = 30;
 
 export default function CalendarScreen() {
-  const { userColor } = useUserMode();
+  const { userColor, userId } = useUserMode();
+  const { profile } = useProfile(userId);
   const appColors = useAppColors();
   const insets = useSafeAreaInsets();
   const { loading, error, refresh, getOccurrencesByRange, createEvent, createEventWithRecurrence, deleteEvent } = useEvents();
@@ -322,7 +329,12 @@ export default function CalendarScreen() {
   const fabPressIn = () => Animated.spring(fabScale, { toValue: 0.90, useNativeDriver: true, damping: 20, stiffness: 400 }).start();
   const fabPressOut = () => Animated.spring(fabScale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 280 }).start();
 
-  useFocusEffect(useCallback(() => { refresh(); }, []));
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+      rescheduleEventReminders(profile?.notification_category_ids ?? []).catch(() => {});
+    }, [profile?.notification_category_ids]),
+  );
 
   const currentMonthWeeks = useMemo(() => getWeeksForMonth(currentDate), [currentDate]);
   const monthBlockHeight = currentMonthWeeks.length * YEAR_ROW_HEIGHT;
@@ -462,15 +474,15 @@ export default function CalendarScreen() {
     : format(selectedDate, 'MMMM d, yyyy');
 
   return (
-    <SafeAreaView style={[s.safe, { backgroundColor: appColors.background }]} edges={['top']}>
-      {/* Header */}
-      <View style={[s.header, { backgroundColor: appColors.surface }]}>
+    <SafeAreaView style={[s.safe, { backgroundColor: appColors.surface }]} edges={['top']}>
+      {/* Header — same color as Dynamic Island / status bar area */}
+      <View style={[s.header, { backgroundColor: appColors.surface, borderBottomColor: appColors.separator }]}>
         <View style={s.headerLeft}>
           <View style={[s.iconBadge, { backgroundColor: userColor + '14' }]}>
             <Ionicons name="calendar" size={20} color={userColor} />
           </View>
           <View>
-            <Text style={s.title}>Calendar</Text>
+            <Text style={[s.title, { color: appColors.label }]}>Calendar</Text>
             <Pressable onPress={goToday} hitSlop={8}>
               <Text style={[s.todayLink, { color: userColor }]}>
                 {format(new Date(), 'EEE, MMM d')} · tap to jump
@@ -486,28 +498,36 @@ export default function CalendarScreen() {
           >
             <Ionicons name="camera-outline" size={20} color={appColors.labelSecondary} />
           </Pressable>
-          <UserToggle />
         </View>
       </View>
 
+      {/* Main content — background so island/header stay surface */}
+      <View style={[s.contentWrap, { backgroundColor: appColors.background }]}>
       {/* View mode toggle + nav */}
-      <View style={s.controlBar}>
+      <View style={[s.controlBar, { backgroundColor: appColors.surface, borderBottomColor: appColors.separator }]}>
         {/* Segmented control */}
-        <View style={s.segmented}>
+        <View style={[s.segmented, { backgroundColor: appColors.fillSecondary }]}>
           {(['week', 'month'] as ViewMode[]).map((mode) => {
             const active = viewMode === mode;
             return (
               <Pressable
                 key={mode}
-                onPress={() => setViewMode(mode)}
+                onPress={() => {
+                  if (mode === 'month') {
+                    const monthStart = startOfMonth(selectedDate);
+                    setCurrentDate(monthStart);
+                    setDisplayedMonth(monthStart);
+                  }
+                  setViewMode(mode);
+                }}
                 style={[s.segBtn, active && [s.segBtnActive, { backgroundColor: userColor }]]}
               >
                 <Ionicons
                   name={mode === 'week' ? 'today-outline' : 'calendar-outline'}
                   size={14}
-                  color={active ? '#fff' : colors.labelSecondary}
+                  color={active ? '#fff' : appColors.labelSecondary}
                 />
-                <Text style={[s.segBtnText, active && s.segBtnTextActive]}>
+                <Text style={[s.segBtnText, { color: appColors.labelSecondary }, active && [s.segBtnTextActive, { color: '#fff' }]]}>
                   {mode === 'week' ? 'Week' : 'Month'}
                 </Text>
               </Pressable>
@@ -518,19 +538,19 @@ export default function CalendarScreen() {
         {/* Navigation */}
         <View style={s.navGroup}>
           {viewMode === 'week' && (
-            <Pressable onPress={navigatePrev} style={s.navBtn} hitSlop={8}>
-              <Ionicons name="chevron-back" size={20} color={colors.label} />
+            <Pressable onPress={navigatePrev} style={[s.navBtn, { backgroundColor: appColors.fill }]} hitSlop={8}>
+              <Ionicons name="chevron-back" size={20} color={appColors.label} />
             </Pressable>
           )}
           <Text
-            style={viewMode === 'month' ? s.navLabelMonth : s.navLabel}
+            style={[viewMode === 'month' ? s.navLabelMonth : s.navLabel, { color: appColors.label }]}
             numberOfLines={1}
           >
             {navLabel}
           </Text>
           {viewMode === 'week' && (
-            <Pressable onPress={navigateNext} style={s.navBtn} hitSlop={8}>
-              <Ionicons name="chevron-forward" size={20} color={colors.label} />
+            <Pressable onPress={navigateNext} style={[s.navBtn, { backgroundColor: appColors.fill }]} hitSlop={8}>
+              <Ionicons name="chevron-forward" size={20} color={appColors.label} />
             </Pressable>
           )}
         </View>
@@ -571,9 +591,9 @@ export default function CalendarScreen() {
           {viewMode === 'month' && (
             <>
               <Animated.View style={[s.collapsibleWrap, { maxHeight: collapseAnim.interpolate({ inputRange: [0, 1], outputRange: [WEEKDAY_ROW_HEIGHT + monthBlockHeight, 0] }) }]}>
-                <View style={s.weekdayRow}>
+                <View style={[s.weekdayRow, { backgroundColor: appColors.surface, borderBottomColor: appColors.separator }]}>
                   {(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const).map((d, i) => (
-                    <Text key={d} style={[s.weekdayCell, (i === 0 || i === 6) && s.weekdayWeekend]}>{d}</Text>
+                    <Text key={d} style={[s.weekdayCell, { color: appColors.labelTertiary }, (i === 0 || i === 6) && { opacity: 0.75 }]}>{d}</Text>
                   ))}
                 </View>
                 <View
@@ -582,7 +602,7 @@ export default function CalendarScreen() {
                 >
                   <MonthBlock
                     weeks={currentMonthWeeks}
-                    borderColor={colors.separator}
+                    borderColor={appColors.separator}
                     selectedDate={selectedDate}
                     yearStart={startOfMonth(currentDate)}
                     yearEnd={endOfMonth(currentDate)}
@@ -590,6 +610,7 @@ export default function CalendarScreen() {
                     accentColor={userColor}
                     onSelectDate={setSelectedDate}
                     today={today}
+                    appColors={appColors}
                   />
                 </View>
               </Animated.View>
@@ -646,21 +667,22 @@ export default function CalendarScreen() {
           <AIImportScreen isModal onClose={() => setShowImport(false)} />
         </SafeAreaProvider>
       </Modal>
+      </View>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
+  safe: { flex: 1 },
+  contentWrap: { flex: 1 },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
-    backgroundColor: colors.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   iconBadge: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-  title: { ...typography.title3, color: colors.label },
+  title: { ...typography.title3 },
   todayLink: { fontSize: 12, fontWeight: '500', marginTop: 2 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   importBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
@@ -668,11 +690,11 @@ const s = StyleSheet.create({
   controlBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
-    backgroundColor: colors.surface, gap: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator,
+    gap: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   segmented: {
-    flexDirection: 'row', backgroundColor: colors.fillSecondary,
+    flexDirection: 'row',
     borderRadius: radius.sm, padding: 2, gap: 2,
   },
   segBtn: {
@@ -681,12 +703,12 @@ const s = StyleSheet.create({
     borderRadius: radius.xs,
   },
   segBtnActive: {},
-  segBtnText: { fontSize: 13, fontWeight: '600', color: colors.labelSecondary },
+  segBtnText: { fontSize: 13, fontWeight: '600' },
   segBtnTextActive: { color: '#fff' },
   navGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1, justifyContent: 'flex-end' },
-  navBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.fill, alignItems: 'center', justifyContent: 'center' },
-  navLabel: { ...typography.subhead, color: colors.label, minWidth: 80, textAlign: 'center' },
-  navLabelMonth: { ...typography.title2, color: colors.label, flex: 1, textAlign: 'center' },
+  navBtn: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  navLabel: { ...typography.subhead, minWidth: 80, textAlign: 'center' },
+  navLabelMonth: { ...typography.title2, flex: 1, textAlign: 'center' },
 
   errorBanner: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
@@ -702,15 +724,12 @@ const s = StyleSheet.create({
     paddingHorizontal: spacing.xs,
     paddingVertical: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
-    backgroundColor: colors.surface,
   },
   weekdayCell: {
     flex: 1, textAlign: 'center',
     fontSize: 11, fontWeight: '600',
-    color: colors.labelTertiary, letterSpacing: 0.3,
+    letterSpacing: 0.3,
   },
-  weekdayWeekend: { color: colors.labelTertiary + 'BB' },
   monthScroll: { flex: 1 },
   monthScrollContent: {},
   monthPageWrap: { overflow: 'hidden' as const },

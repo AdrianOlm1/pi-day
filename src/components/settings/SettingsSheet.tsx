@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, StyleSheet, ScrollView, Modal, Pressable,
-  Animated, Platform, Easing,
+  Animated, Platform, Easing, ActivityIndicator, Alert,
 } from 'react-native';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { spacing, typography, radius, shadows } from '@/theme';
 import { useTheme, useAppColors, type FontSizeScale } from '@/contexts/ThemeContext';
 import { useUserMode } from '@/contexts/UserModeContext';
+import { usePairing } from '@/contexts/PairingContext';
 import { useProfile } from '@/hooks/useProfile';
 import { SectionHeader } from './SectionHeader';
 import { UserColorPicker } from './UserColorPicker';
@@ -31,31 +32,6 @@ function hexToRgba(hex: string, a: number): string {
   const g = parseInt(h.slice(2, 4), 16) || 0;
   const b = parseInt(h.slice(4, 6), 16) || 0;
   return `rgba(${r},${g},${b},${a})`;
-}
-
-// ─── Bouncy leaf entrance — staggers items with a spring pop ─────────────────
-function useLeafEntrance(visible: boolean, delay = 0) {
-  const scale   = useRef(new Animated.Value(0.7)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
-  const transY  = useRef(new Animated.Value(18)).current;
-
-  useEffect(() => {
-    if (visible) {
-      setTimeout(() => {
-        Animated.parallel([
-          Animated.spring(scale,   { toValue: 1, useNativeDriver: true, damping: 14, stiffness: 200, mass: 0.8 }),
-          Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-          Animated.spring(transY,  { toValue: 0, useNativeDriver: true, damping: 16, stiffness: 220 }),
-        ]).start();
-      }, delay);
-    } else {
-      scale.setValue(0.7);
-      opacity.setValue(0);
-      transY.setValue(18);
-    }
-  }, [visible]);
-
-  return { scale, opacity, transY };
 }
 
 // ─── Floating leaf decoration ─────────────────────────────────────────────────
@@ -117,7 +93,7 @@ function NameInput({ userId, currentName }: NameInputProps) {
         onBlur={() => { if (val.trim()) setUserName(userId, val.trim()); }}
         style={[ni.input, { color: appColors.label }]}
         placeholderTextColor={appColors.labelTertiary}
-        placeholder={userId === 'adrian' ? "Adrian's display name" : "Sarah's display name"}
+        placeholder="Display name"
         returnKeyType="done"
         selectionColor={color}
         maxLength={24}
@@ -209,7 +185,7 @@ function NotificationRow() {
   return (
     <View>
       <Pressable onPress={() => setShow(s => !s)} style={nr.row}>
-        <View style={nr.iconBadge}><Ionicons name="notifications-outline" size={20} color={appColors.labelSecondary} /></View>
+        <View style={[nr.iconBadge, { backgroundColor: hexToRgba(appColors.gradientFrom, 0.12) }]}><Ionicons name="notifications-outline" size={20} color={appColors.labelSecondary} /></View>
         <View style={{ flex: 1 }}>
           <Text style={[nr.label, { color: appColors.label }]}>Daily Reminder</Text>
           <Text style={[nr.sub, { color: appColors.labelTertiary }]}>Goals & to-dos</Text>
@@ -238,7 +214,7 @@ function NotificationRow() {
 }
 const nr = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md },
-  iconBadge: { width: 44, height: 44, borderRadius: radius.md, backgroundColor: 'rgba(59,130,246,0.12)', alignItems: 'center', justifyContent: 'center' },
+  iconBadge: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   label: { ...typography.bodyEmphasis },
   sub:   { ...typography.footnote, marginTop: 2 },
   time:  { ...typography.bodyEmphasis },
@@ -250,25 +226,33 @@ interface SettingsSheetProps { visible: boolean; onClose: () => void; }
 export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const appColors = useAppColors();
   const insets = useSafeAreaInsets();
-  const { activeTheme, setThemeId, fontSizeScale, setFontSizeScale } = useTheme();
-  const { userColor } = useUserMode();
-  const topInset = Platform.OS === 'ios' ? Math.max(insets.top, 12) : insets.top;
+  const { activeTheme, setThemeId, fontSizeScale, setFontSizeScale, getUserName } = useTheme();
+  const { userColor, userId } = useUserMode();
+  const { pair, role, generateClaimCode } = usePairing();
+  const [claimCode, setClaimCode]     = useState<string | null>(null);
+  const [claimLoading, setClaimLoading] = useState(false);
+  const topInset = Platform.OS === 'ios' ? 10 : Math.max(insets.top, 10);
 
-  // Slide-up spring
+  async function handleGenerateClaim() {
+    setClaimLoading(true);
+    try {
+      const code = await generateClaimCode();
+      setClaimCode(code);
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setClaimLoading(false);
+    }
+  }
+
+  // Slide-up only — no per-section animations to avoid lag
   const slideY = useRef(new Animated.Value(900)).current;
-  // Staggered section entrances
-  const prof   = useLeafEntrance(visible, 100);
-  const cats   = useLeafEntrance(visible, 140);
-  const autoDel = useLeafEntrance(visible, 180);
-  const theme  = useLeafEntrance(visible, 200);
-  const notif  = useLeafEntrance(visible, 280);
-  const disp   = useLeafEntrance(visible, 340);
 
   useEffect(() => {
     if (visible) {
-      Animated.spring(slideY, { toValue: 0, useNativeDriver: true, damping: 28, stiffness: 260, mass: 0.9 }).start();
+      Animated.spring(slideY, { toValue: 0, useNativeDriver: true, damping: 32, stiffness: 420, mass: 0.65 }).start();
     } else {
-      Animated.spring(slideY, { toValue: 900, useNativeDriver: true, damping: 22, stiffness: 320 }).start();
+      Animated.spring(slideY, { toValue: 900, useNativeDriver: true, damping: 26, stiffness: 380 }).start();
     }
   }, [visible]);
 
@@ -276,7 +260,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <Pressable style={s.backdrop} onPress={onClose} />
+      <Pressable style={[s.backdrop, { backgroundColor: hexToRgba(appColors.label, 0.38) }]} onPress={onClose} />
 
       <Animated.View style={[s.sheet, { transform: [{ translateY: slideY }] }]}>
         {/* ── AC tiled background ──────────────────── */}
@@ -284,7 +268,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
 
         <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
           {/* ── Glass header (extra top padding to clear Dynamic Island) ── */}
-          <View style={[s.headerWrap, { paddingTop: topInset }]} pointerEvents="box-none">
+          <View style={[s.headerWrap, { paddingTop: topInset, borderBottomColor: appColors.separator }]} pointerEvents="box-none">
             <LinearGradient
               colors={[hexToRgba(appColors.surface, 0.95), hexToRgba(appColors.surface, 0.88)]}
               style={StyleSheet.absoluteFill}
@@ -320,51 +304,115 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
           <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
 
             {/* ── Your Profile ───────────────────────── */}
-            <Animated.View style={{ opacity: prof.opacity, transform: [{ scale: prof.scale }, { translateY: prof.transY }] }}>
+            <View>
               <SectionHeader title="Your Profile" pattern={activeTheme.pattern} accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
               <GlassCard style={s.cardMargin} accentColor={appColors.gradientFrom}>
-                <ColorRow userId="adrian" label="Adrian" />
-                <ColorRow userId="sarah"  label="Sarah" isLast />
+                <ColorRow userId="adrian" label={getUserName('adrian')} />
+                <ColorRow userId="sarah"  label={getUserName('sarah')} isLast />
               </GlassCard>
-            </Animated.View>
+            </View>
 
             {/* ── Event categories (second so it’s visible without scrolling) ── */}
-            <Animated.View style={{ opacity: cats.opacity, transform: [{ scale: cats.scale }, { translateY: cats.transY }] }}>
+            <View>
               <SectionHeader title="Event categories" emoji="📁" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
               <CategoriesSection />
-            </Animated.View>
+            </View>
 
             {/* ── App Theme ──────────────────────────── */}
-            <Animated.View style={{ opacity: theme.opacity, transform: [{ scale: theme.scale }, { translateY: theme.transY }] }}>
+            <View>
               <SectionHeader title="App Theme" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
               <ThemePicker selectedThemeId={activeTheme.id} onSelectTheme={id => setThemeId(id)} />
-            </Animated.View>
+            </View>
 
             {/* ── Notifications ──────────────────────── */}
-            <Animated.View style={{ opacity: notif.opacity, transform: [{ scale: notif.scale }, { translateY: notif.transY }] }}>
+            <View>
               <SectionHeader title="Notifications" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
               <GlassCard style={s.cardMargin} accentColor={appColors.gradientFrom}>
                 <NotificationRow />
                 <CategoryNotificationToggles />
               </GlassCard>
-            </Animated.View>
+            </View>
 
             {/* ── Auto delete ────────────────────────── */}
-            <Animated.View style={{ opacity: autoDel.opacity, transform: [{ scale: autoDel.scale }, { translateY: autoDel.transY }] }}>
+            <View>
               <AutoDeleteSection />
-            </Animated.View>
+            </View>
 
             {/* ── Font size ───────────────────────────── */}
-            <Animated.View style={{ opacity: disp.opacity, transform: [{ scale: disp.scale }, { translateY: disp.transY }] }}>
+            <View>
               <SectionHeader title="Display" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
               <GlassCard style={[s.cardMargin, { paddingVertical: spacing.md }]} accentColor={appColors.gradientFrom}>
                 <Text style={[s.displayLabel, { color: appColors.labelSecondary }]}>Font Size</Text>
                 <FontScalePicker value={fontSizeScale} onChange={v => setFontSizeScale(v)} />
               </GlassCard>
-            </Animated.View>
+            </View>
+
+            {/* ── Device / Pairing ───────────────────── */}
+            <View>
+              <SectionHeader title="Device" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
+              <GlassCard style={s.cardMargin}>
+                {/* Current role */}
+                <View style={s.aboutRow}>
+                  <Text style={[s.aboutLabel, { color: appColors.label }]}>Your role</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: userColor }} />
+                    <Text style={[s.aboutVersion, { color: appColors.label, fontWeight: '700' }]}>
+                      {userId.charAt(0).toUpperCase() + userId.slice(1)}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[s.sep, { backgroundColor: appColors.separator }]} />
+
+                {/* Pair code */}
+                {pair?.pair_code && (
+                  <>
+                    <View style={s.aboutRow}>
+                      <Text style={[s.aboutLabel, { color: appColors.label }]}>Pair code</Text>
+                      <Text style={[s.aboutVersion, { color: appColors.labelSecondary, letterSpacing: 2, fontWeight: '700' }]}>
+                        {pair.pair_code}
+                      </Text>
+                    </View>
+                    <View style={[s.sep, { backgroundColor: appColors.separator }]} />
+                  </>
+                )}
+
+                {/* Replace this device */}
+                {claimCode ? (
+                  <View style={{ gap: 6 }}>
+                    <Text style={[s.aboutLabel, { color: appColors.label }]}>Claim code (10 min)</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 8 }}>
+                      {claimCode.split('').map((ch, i) => (
+                        <View key={i} style={{ width: 36, height: 42, borderRadius: 8, backgroundColor: userColor + '18', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ fontSize: 22, fontWeight: '900', color: userColor }}>{ch}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <Text style={[s.aboutVersion, { color: appColors.labelTertiary, textAlign: 'center' }]}>
+                      Enter this on your new phone
+                    </Text>
+                    <Pressable onPress={() => setClaimCode(null)} style={{ alignSelf: 'center', marginTop: 4 }}>
+                      <Text style={{ fontSize: 13, color: appColors.labelTertiary, textDecorationLine: 'underline' }}>Dismiss</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable onPress={handleGenerateClaim} style={[s.aboutRow, s.replaceDeviceRow]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View style={[s.replaceDeviceIconWrap, { backgroundColor: hexToRgba(appColors.gradientFrom, 0.12) }]}>
+                        <Ionicons name="phone-portrait-outline" size={18} color={appColors.gradientFrom} />
+                      </View>
+                      <Text style={[s.aboutLabel, { color: appColors.label }]}>Replace this device</Text>
+                    </View>
+                    {claimLoading
+                      ? <ActivityIndicator size="small" color={appColors.gradientFrom} />
+                      : <Ionicons name="chevron-forward" size={16} color={appColors.labelTertiary} />
+                    }
+                  </Pressable>
+                )}
+              </GlassCard>
+            </View>
 
             {/* ── About ──────────────────────────────── */}
-            <Animated.View style={{ opacity: disp.opacity, transform: [{ scale: disp.scale }, { translateY: disp.transY }] }}>
+            <View>
               <SectionHeader title="About" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
               <GlassCard style={s.cardMargin}>
                 <View style={s.aboutRow}>
@@ -376,7 +424,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                   <Text style={[s.aboutLabel, { color: appColors.label }]}>Made by Adrian & Sarah</Text>
                 </View>
               </GlassCard>
-            </Animated.View>
+            </View>
 
             <View style={{ height: spacing.xxxl * 3 }} />
           </ScrollView>
@@ -387,7 +435,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
 }
 
 const s = StyleSheet.create({
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.38)' },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     height: '88%',
@@ -399,12 +447,11 @@ const s = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.4)',
   },
   headerBorder: { position: 'absolute', bottom: 0, left: 0, right: 0, height: StyleSheet.hairlineWidth },
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl, paddingTop: spacing.xs, paddingBottom: spacing.md,
+    paddingHorizontal: spacing.xl, paddingTop: 6, paddingBottom: spacing.sm,
     zIndex: 2,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
@@ -415,6 +462,8 @@ const s = StyleSheet.create({
   cardMargin: { marginHorizontal: spacing.xl },
   displayLabel: { ...typography.subhead, paddingHorizontal: spacing.xl, marginBottom: spacing.sm },
   aboutRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xl, paddingVertical: spacing.md },
+  replaceDeviceRow: { paddingVertical: spacing.md },
+  replaceDeviceIconWrap: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   aboutLabel: { ...typography.body },
   aboutVersion: { ...typography.body },
   sep: { height: StyleSheet.hairlineWidth, marginHorizontal: spacing.xl },

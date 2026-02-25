@@ -6,6 +6,7 @@ const KEYS = {
   dailyReminderTime: 'piday_order_reminder_daily_time',
   weekAfterCreate: 'piday_order_reminder_week_after',
   onDueDate: 'piday_order_reminder_on_due_date',
+  monthlyRecap: 'piday_order_reminder_monthly_recap',
 } as const;
 
 export interface OrderReminderSettings {
@@ -13,6 +14,7 @@ export interface OrderReminderSettings {
   dailyReminderTime: string; // HH:MM
   weekAfterCreate: boolean;
   onDueDate: boolean;
+  monthlyRecap: boolean;
 }
 
 const DEFAULT: OrderReminderSettings = {
@@ -20,6 +22,7 @@ const DEFAULT: OrderReminderSettings = {
   dailyReminderTime: '09:00',
   weekAfterCreate: false,
   onDueDate: false,
+  monthlyRecap: false,
 };
 
 export function useOrderReminderSettings() {
@@ -28,17 +31,19 @@ export function useOrderReminderSettings() {
 
   const load = useCallback(async () => {
     try {
-      const [daily, time, week, due] = await Promise.all([
+      const [daily, time, week, due, monthly] = await Promise.all([
         AsyncStorage.getItem(KEYS.dailyReminder),
         AsyncStorage.getItem(KEYS.dailyReminderTime),
         AsyncStorage.getItem(KEYS.weekAfterCreate),
         AsyncStorage.getItem(KEYS.onDueDate),
+        AsyncStorage.getItem(KEYS.monthlyRecap),
       ]);
       setSettings({
         dailyReminder: daily === 'true',
         dailyReminderTime: time ?? DEFAULT.dailyReminderTime,
         weekAfterCreate: week === 'true',
         onDueDate: due === 'true',
+        monthlyRecap: monthly === 'true',
       });
     } catch {
       setSettings(DEFAULT);
@@ -58,6 +63,7 @@ export function useOrderReminderSettings() {
       if (patch.dailyReminderTime != null) AsyncStorage.setItem(KEYS.dailyReminderTime, next.dailyReminderTime);
       if (patch.weekAfterCreate != null) AsyncStorage.setItem(KEYS.weekAfterCreate, String(next.weekAfterCreate));
       if (patch.onDueDate != null) AsyncStorage.setItem(KEYS.onDueDate, String(next.onDueDate));
+      if (patch.monthlyRecap != null) AsyncStorage.setItem(KEYS.monthlyRecap, String(next.monthlyRecap));
       return next;
     });
   }, []);

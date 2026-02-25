@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { fetchProfile, updateNotificationTime, updateNotificationCategoryIds } from '../services/profiles';
-import { scheduleDailyTodoReminder } from '../services/notifications';
+import { scheduleDailyTodoReminder, rescheduleEventReminders } from '../services/notifications';
 import type { Profile, UserId } from '../types';
 
 function normalizeProfile(p: Profile | null): Profile | null {
@@ -39,6 +39,7 @@ export function useProfile(userId: UserId) {
       if (!profile) return;
       await updateNotificationCategoryIds(userId, categoryIds);
       setProfile({ ...profile, notification_category_ids: categoryIds });
+      rescheduleEventReminders(categoryIds).catch(() => {});
     },
     [profile, userId],
   );

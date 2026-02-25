@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { radius, spacing, typography } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 interface ButtonProps {
   title: string;
@@ -26,7 +27,7 @@ interface ButtonProps {
 export function Button({
   title,
   onPress,
-  color = '#3B82F6',
+  color: colorProp,
   loading = false,
   disabled = false,
   variant = 'filled',
@@ -34,6 +35,8 @@ export function Button({
   style,
   textStyle,
 }: ButtonProps) {
+  const appColors = useAppColors();
+  const color = colorProp ?? appColors.gradientFrom;
   const isDisabled = disabled || loading;
   const scale = useRef(new Animated.Value(1)).current;
 

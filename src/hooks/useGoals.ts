@@ -9,6 +9,9 @@ import {
   deleteGoal,
   checkInHabit,
   uncheckHabit,
+  getPeriodKey,
+  logMetricProgress as logMetricProgressService,
+  resetMetricPeriod as resetMetricPeriodService,
 } from '../services/goals';
 import { playHabitComplete, playAllHabitComplete, playHabitUnselect } from '../utils/sounds';
 import type { Goal, HabitCompletion, UserId } from '../types';
@@ -66,11 +69,36 @@ export function useGoals(userId: UserId) {
 
   const todayStr = () => new Date().toISOString().slice(0, 10);
 
-  /** Has `owner` checked into `habitId` today? */
-  const isCheckedIn = useCallback(
-    (habitId: string, owner: UserId): boolean =>
-      completions.some((c) => c.habit_id === habitId && c.owner === owner && c.date === todayStr()),
+  /** Current period key (today's date, this week's Monday, or this month's 1st) for a goal's period type. */
+  const currentPeriodKey = useCallback((periodType: import('../types').GoalPeriodType) => {
+    return getPeriodKey(new Date(), periodType);
+  }, []);
+
+  /** For metric goals: total amount logged in the current period. For binary, 0. */
+  const currentPeriodAmount = useCallback(
+    (habitId: string, owner: UserId, periodType: import('../types').GoalPeriodType): number => {
+      const key = getPeriodKey(new Date(), periodType);
+      const c = completions.find(
+        (x) => x.habit_id === habitId && x.owner === owner && x.date === key,
+      );
+      return c?.amount != null ? Number(c.amount) : 0;
+    },
     [completions],
+  );
+
+  /** Has `owner` checked into `habitId` today? (binary) or achieved period target? (metric) */
+  const isCheckedIn = useCallback(
+    (habitId: string, owner: UserId, goal?: Goal): boolean => {
+      const g = goal ?? goals.find((x) => x.id === habitId);
+      if (g?.metric_target != null) {
+        const amount = currentPeriodAmount(habitId, owner, g.period_type);
+        return amount >= g.metric_target;
+      }
+      return completions.some(
+        (c) => c.habit_id === habitId && c.owner === owner && c.date === todayStr(),
+      );
+    },
+    [completions, goals, currentPeriodAmount],
   );
 
   /** Last 28 completion dates for a habit+owner (for mini calendar grid) */
@@ -185,6 +213,74 @@ export function useGoals(userId: UserId) {
     [userId],
   );
 
+  /** Log amount for a metric goal (adds to current period). Returns when period is achieved. */
+  const logMetricProgress = useCallback(
+    async (
+      goal: Goal,
+      amountToAdd: number,
+    ): Promise<{ newTotal: number; achieved: boolean; newStreak: number; isMilestoneHit: boolean }> => {
+      if (goal.metric_target == null) throw new Error('Goal has no metric target');
+      const periodKey = getPeriodKey(new Date(), goal.period_type);
+      const prevAmount = currentPeriodAmount(goal.id, userId, goal.period_type);
+      setCompletions((prev) => {
+        const rest = prev.filter(
+          (c) => !(c.habit_id === goal.id && c.owner === userId && c.date === periodKey),
+        );
+        const newTotal = prevAmount + amountToAdd;
+        return [...rest, { id: `opt-${goal.id}-${periodKey}`, habit_id: goal.id, owner: userId, date: periodKey, amount: newTotal, created_at: new Date().toISOString() }];
+      });
+      try {
+        const result = await logMetricProgressService(
+          goal.id,
+          userId,
+          amountToAdd,
+          goal.period_type,
+          goal.metric_target,
+          goal.longest_streak,
+        );
+        setGoals((prev) =>
+          prev.map((g) =>
+            g.id === goal.id
+              ? {
+                  ...g,
+                  current_streak: result.newStreak,
+                  longest_streak: Math.max(g.longest_streak, result.newStreak),
+                  ...(result.achieved ? { last_checked_in: periodKey } : {}),
+                }
+              : g,
+          ),
+        );
+        if (result.achieved) playHabitComplete();
+        await load(true);
+        return result;
+      } catch (e) {
+        setCompletions((prev) =>
+          prev.filter(
+            (c) => !(c.habit_id === goal.id && c.owner === userId && c.date === periodKey),
+          ),
+        );
+        throw e;
+      }
+    },
+    [userId, load, goals, completions, currentPeriodAmount],
+  );
+
+  /** Reset current period progress for a metric goal. */
+  const resetMetricPeriod = useCallback(
+    async (goal: Goal) => {
+      if (goal.metric_target == null) return;
+      await resetMetricPeriodService(
+        goal.id,
+        userId,
+        goal.period_type,
+        goal.metric_target,
+        goal.longest_streak,
+      );
+      await load(true);
+    },
+    [userId, load],
+  );
+
   /** Refetch goals/completions. Pass true to refresh in background without showing loading spinner. */
   const refresh = useCallback((silent = false) => load(silent), [load]);
 
@@ -201,6 +297,10 @@ export function useGoals(userId: UserId) {
     checkIn,
     uncheck,
     isCheckedIn,
+    currentPeriodKey,
+    currentPeriodAmount,
+    logMetricProgress,
+    resetMetricPeriod,
     recentDates,
     partnerId,
   };

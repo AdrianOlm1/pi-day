@@ -1,14 +1,15 @@
-import React, { useCallback, useState, useRef, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import {
   View, ScrollView, StyleSheet, ActivityIndicator, Pressable, Animated, TextInput, Platform,
 } from 'react-native';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useUserMode } from '@/contexts/UserModeContext';
 import { useAppColors } from '@/contexts/ThemeContext';
 import { useOrders } from '@/hooks/useOrders';
+import { useOrderReminderSettings } from '@/hooks/useOrderReminderSettings';
+import { rescheduleAllOrderReminders } from '@/services/notifications';
 import { OrderCard } from '@/components/orders/OrderCard';
 import { OrderForm } from '@/components/orders/OrderForm';
 import { OrderDetailSheet } from '@/components/orders/OrderDetailSheet';
@@ -16,29 +17,33 @@ import { OrderStatsSheet } from '@/components/orders/OrderStatsSheet';
 import { Sheet } from '@/components/ui/Sheet';
 import { playMenuOpen } from '@/utils/sounds';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { UserToggle } from '@/components/ui/UserToggle';
 import type { Order, OrderStatus } from '@/types';
 import { spacing, typography, colors, radius, shadows } from '@/theme';
 
 type FilterStatus = 'All' | OrderStatus;
 const FILTERS: FilterStatus[] = ['All', 'Pending', 'In Progress', 'Complete'];
-const ACCENT = '#6366F1';
+
+/** Distinct colors for order status (stat pills + filter chips). Matches OrderDetailSheet / OrderForm. */
+const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
+  Pending:       '#F59E0B', // amber
+  'In Progress': '#3B82F6', // blue
+  Complete:      '#22C55E', // green
+};
 
 type ListMode = 'active' | 'archived';
 
 const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 84 : 64;
 
-const STATUS_COLORS: Record<string, string> = {
-  Pending: '#F59E0B',
-  'In Progress': '#3B82F6',
-  Complete: '#22C55E',
-};
+function getStatusColor(status: FilterStatus): string {
+  if (status === 'All') return colors.info;
+  return ORDER_STATUS_COLORS[status];
+}
 
-function StatPill({ label, count, color }: { label: string; count: number; color: string }) {
+function StatPill({ label, count, color, labelColor }: { label: string; count: number; color: string; labelColor: string }) {
   return (
     <View style={[pill.wrap, { backgroundColor: color + '10', borderColor: color + '30' }]}>
       <Text style={[pill.count, { color }]}>{count}</Text>
-      <Text style={pill.label}>{label}</Text>
+      <Text style={[pill.label, { color: labelColor }]}>{label}</Text>
     </View>
   );
 }
@@ -46,14 +51,15 @@ function StatPill({ label, count, color }: { label: string; count: number; color
 const pill = StyleSheet.create({
   wrap: { flex: 1, borderWidth: 1, borderRadius: radius.lg, alignItems: 'center', paddingVertical: spacing.md },
   count: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
-  label: { fontSize: 11, fontWeight: '600', color: colors.labelSecondary, marginTop: 2 },
+  label: { fontSize: 11, fontWeight: '600', marginTop: 2 },
 });
 
 export default function OrdersScreen() {
-  const { userColor } = useUserMode();
   const appColors = useAppColors();
-  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { orderId: orderIdParam } = useLocalSearchParams<{ orderId?: string }>();
   const { orders, loading, refresh, addOrder, editOrder, changeStatus, remove, archiveOrder } = useOrders();
+  const { settings: orderReminderSettings, loading: orderRemindersLoading } = useOrderReminderSettings();
   const [showForm, setShowForm] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -64,6 +70,24 @@ export default function OrdersScreen() {
   const fabScale = useRef(new Animated.Value(1)).current;
 
   useFocusEffect(useCallback(() => { refresh(); }, []));
+
+  // Reschedule order reminders when orders or reminder settings change
+  useEffect(() => {
+    if (orderRemindersLoading) return;
+    rescheduleAllOrderReminders(orders, orderReminderSettings).catch(() => {});
+  }, [orders, orderRemindersLoading, orderReminderSettings.dailyReminder, orderReminderSettings.dailyReminderTime, orderReminderSettings.weekAfterCreate, orderReminderSettings.onDueDate, orderReminderSettings.monthlyRecap]);
+
+  // Open order detail when navigated from home with orderId
+  useFocusEffect(
+    useCallback(() => {
+      if (!orderIdParam || !orders.length) return;
+      const order = orders.find((o) => o.id === orderIdParam);
+      if (order) {
+        setSelectedOrder(order);
+        router.replace('/(tabs)/orders');
+      }
+    }, [orderIdParam, orders]),
+  );
 
   const activeOrders = orders.filter((o) => !o.archived);
   const archivedOrders = orders.filter((o) => !!o.archived);
@@ -101,42 +125,37 @@ export default function OrdersScreen() {
   const fabPressOut = () => Animated.spring(fabScale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 280 }).start();
 
   return (
-    <SafeAreaView style={[s.safe, { backgroundColor: appColors.background }]} edges={['top']}>
-      {/* Order reminders sheet */}
+    <SafeAreaView style={[s.safe, { backgroundColor: colors.surface }]} edges={['top']}>
       <OrderStatsSheet visible={showOrderStats} onClose={() => setShowOrderStats(false)} />
 
-      {/* Header */}
-      <View style={[s.header, { backgroundColor: appColors.surface }]}>
+      {/* Order banner — only themed area */}
+      <View style={[s.header, { backgroundColor: appColors.surface, borderBottomColor: appColors.separator }]}>
         <View style={s.headerLeft}>
-          <View style={[s.iconBadge, { backgroundColor: ACCENT + '14' }]}>
-            <Ionicons name="reader" size={20} color={ACCENT} />
+          <View style={[s.iconBadge, { backgroundColor: appColors.gradientFrom + '14' }]}>
+            <Ionicons name="reader" size={20} color={appColors.gradientFrom} />
           </View>
-          <Text style={s.title}>Orders</Text>
+          <Text style={[s.title, { color: appColors.label }]}>Orders</Text>
         </View>
         <View style={s.headerRight}>
-          <Pressable
-            onPress={() => { playMenuOpen(); setShowOrderStats(true); }}
-            hitSlop={8}
-            style={s.statsBtn}
-          >
-            <Ionicons name="bar-chart-outline" size={20} color={appColors.labelSecondary} />
+          <Pressable onPress={() => { playMenuOpen(); setShowOrderStats(true); }} hitSlop={8} style={s.statsBtn}>
+            <Ionicons name="bar-chart-outline" size={20} color={colors.labelSecondary} />
           </Pressable>
-          <UserToggle />
         </View>
       </View>
 
+      <View style={[s.contentWrap, { backgroundColor: colors.background }]}>
       {/* Stats */}
-      <View style={s.statsRow}>
-        <StatPill label="Pending"     count={pending}    color={STATUS_COLORS.Pending} />
-        <StatPill label="In Progress" count={inProgress} color={STATUS_COLORS['In Progress']} />
-        <StatPill label="Complete"    count={complete}   color={STATUS_COLORS.Complete} />
+      <View style={[s.statsRow, { backgroundColor: colors.surface, borderBottomColor: colors.separator }]}>
+        <StatPill label="Pending"     count={pending}    color={getStatusColor('Pending')}     labelColor={colors.labelSecondary} />
+        <StatPill label="In Progress" count={inProgress} color={getStatusColor('In Progress')} labelColor={colors.labelSecondary} />
+        <StatPill label="Complete"    count={complete}   color={getStatusColor('Complete')}    labelColor={colors.labelSecondary} />
       </View>
 
       {/* Mode tabs */}
-      <View style={s.modeRow}>
+      <View style={[s.modeRow, { backgroundColor: colors.surface, borderBottomColor: colors.separator }]}>
         {(['active', 'archived'] as ListMode[]).map((mode) => {
           const active = listMode === mode;
-          const modeColor = mode === 'active' ? ACCENT : colors.labelSecondary;
+          const modeColor = mode === 'active' ? colors.info : colors.labelSecondary;
           return (
             <Pressable
               key={mode}
@@ -159,18 +178,23 @@ export default function OrdersScreen() {
       {/* Filter pills (Active) or Search (Archived) */}
       {listMode === 'active' && (
         <ScrollView
-          horizontal showsHorizontalScrollIndicator={false}
-          style={s.filterScroll}
-          contentContainerStyle={s.filterContent}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={[s.filterScroll, { backgroundColor: colors.surface }]}
+          contentContainerStyle={[s.filterContent, { borderBottomColor: colors.separator }]}
         >
           {FILTERS.map((f) => {
             const active = filter === f;
-            const fColor = f === 'All' ? ACCENT : STATUS_COLORS[f] ?? ACCENT;
+            const fColor = getStatusColor(f);
             return (
               <Pressable
                 key={f}
                 onPress={() => setFilter(f)}
-                style={[s.filterChip, active && { backgroundColor: fColor + '14', borderColor: fColor }]}
+                style={[
+                  s.filterChip,
+                  { backgroundColor: colors.fillSecondary, borderColor: colors.separator },
+                  active && { backgroundColor: fColor + '14', borderColor: fColor },
+                ]}
               >
                 <Text style={[s.filterText, active && { color: fColor, fontWeight: '700' }]}>{f}</Text>
               </Pressable>
@@ -179,11 +203,11 @@ export default function OrdersScreen() {
         </ScrollView>
       )}
       {listMode === 'archived' && (
-        <View style={s.searchRow}>
-          <View style={s.searchWrap}>
+        <View style={[s.searchRow, { backgroundColor: colors.surface, borderBottomColor: colors.separator }]}>
+          <View style={[s.searchWrap, { backgroundColor: colors.fillSecondary, borderColor: colors.separator }]}>
             <Ionicons name="search-outline" size={18} color={colors.labelTertiary} />
             <TextInput
-              style={s.searchInput}
+              style={[s.searchInput, { color: colors.label }]}
               placeholder="Search archived orders..."
               placeholderTextColor={colors.labelTertiary}
               value={archivedSearch}
@@ -201,7 +225,7 @@ export default function OrdersScreen() {
 
       {/* List */}
       {loading ? (
-        <View style={s.loadingBox}><ActivityIndicator color={ACCENT} /></View>
+        <View style={s.loadingBox}><ActivityIndicator color={colors.info} /></View>
       ) : displayList.length === 0 ? (
         <EmptyState
           icon={listMode === 'archived' ? 'archive-outline' : 'reader-outline'}
@@ -219,7 +243,7 @@ export default function OrdersScreen() {
                 ? 'Archive completed orders to see them here.'
                 : 'Tap + to add your first order.'
           }
-          color={ACCENT}
+          color={colors.info}
         />
       ) : (
         <ScrollView style={s.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={s.list}>
@@ -242,14 +266,14 @@ export default function OrdersScreen() {
       {/* FAB */}
       {listMode === 'active' && (
         <Pressable onPressIn={fabPressIn} onPressOut={fabPressOut} onPress={() => setShowForm(true)} style={[s.fabWrap, { bottom: 20 }]}>
-          <Animated.View style={[s.fab, { backgroundColor: ACCENT, transform: [{ scale: fabScale }] }]}>
+          <Animated.View style={[s.fab, { backgroundColor: colors.info, transform: [{ scale: fabScale }] }]}>
             <Ionicons name="add" size={28} color="#fff" />
           </Animated.View>
         </Pressable>
       )}
 
       <Sheet visible={showForm} onClose={handleClose} heightFraction={0.92}>
-        <OrderForm initial={editingOrder ?? undefined} onSave={handleSave} onCancel={handleClose} accentColor={ACCENT} />
+        <OrderForm initial={editingOrder ?? undefined} onSave={handleSave} onCancel={handleClose} accentColor={colors.info} />
       </Sheet>
 
       {selectedOrder ? (
@@ -264,12 +288,14 @@ export default function OrdersScreen() {
           isArchived={listMode === 'archived'}
         />
       ) : null}
+      </View>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
+  safe: { flex: 1 },
+  contentWrap: { flex: 1 },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
@@ -280,16 +306,17 @@ const s = StyleSheet.create({
   iconBadge: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   title: { ...typography.title3, color: colors.label },
   statsRow: {
-    flexDirection: 'row', gap: spacing.sm,
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-    backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   statsBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   modeRow: {
     flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   modeTab: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs,
@@ -297,31 +324,39 @@ const s = StyleSheet.create({
   },
   modeTabActive: {},
   modeTabText: { ...typography.subhead, color: colors.labelTertiary },
-  filterScroll: { backgroundColor: colors.surface, maxHeight: 48 },
+  filterScroll: { maxHeight: 48 },
   filterContent: {
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
-    gap: spacing.sm, alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   filterChip: {
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.xs,
-    borderRadius: radius.full, borderWidth: 1.5, borderColor: colors.separator,
-    backgroundColor: colors.fillSecondary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    borderWidth: 1.5,
   },
   filterText: { ...typography.subhead, color: colors.labelSecondary },
   searchRow: {
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
-    backgroundColor: colors.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   searchWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    backgroundColor: colors.fillSecondary, borderRadius: radius.lg,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   searchInput: {
-    flex: 1, ...typography.body, color: colors.label, paddingVertical: 4,
+    flex: 1,
+    ...typography.body,
+    paddingVertical: 4,
   },
   clearSearch: { padding: 2 },
   loadingBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },

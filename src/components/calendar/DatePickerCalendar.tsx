@@ -4,7 +4,8 @@ import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { Ionicons } from '@expo/vector-icons';
 import { addMonths, subMonths, startOfMonth, isSameDay, isSameMonth, isBefore, startOfDay } from 'date-fns';
 import { getMonthGrid, formatDate } from '@/utils/date';
-import { typography, colors, radius, spacing } from '@/theme';
+import { typography, radius, spacing } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -30,7 +31,8 @@ function isSingleProps(p: Props): p is DatePickerCalendarSingleProps {
 }
 
 export function DatePickerCalendar(props: Props) {
-  const accentColor = props.accentColor ?? '#3B82F6';
+  const appColors = useAppColors();
+  const accentColor = props.accentColor ?? appColors.gradientFrom;
   const [viewMonth, setViewMonth] = useState(() => {
     if (isSingleProps(props) && props.selectedDate) return startOfMonth(props.selectedDate);
     return startOfMonth(new Date());
@@ -40,20 +42,20 @@ export function DatePickerCalendar(props: Props) {
   const today = startOfDay(new Date());
 
   return (
-    <View style={styles.wrapper}>
+    <View style={[styles.wrapper, { backgroundColor: appColors.surface }]}>
       <View style={styles.header}>
         <Pressable onPress={() => setViewMonth((m) => subMonths(m, 1))} style={styles.navBtn} hitSlop={8}>
-          <Ionicons name="chevron-back" size={20} color={colors.label} />
+          <Ionicons name="chevron-back" size={20} color={appColors.label} />
         </Pressable>
-        <Text style={styles.monthLabel}>{viewMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}</Text>
+        <Text style={[styles.monthLabel, { color: appColors.label }]}>{viewMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}</Text>
         <Pressable onPress={() => setViewMonth((m) => addMonths(m, 1))} style={styles.navBtn} hitSlop={8}>
-          <Ionicons name="chevron-forward" size={20} color={colors.label} />
+          <Ionicons name="chevron-forward" size={20} color={appColors.label} />
         </Pressable>
       </View>
 
-      <View style={styles.weekdayRow}>
+      <View style={[styles.weekdayRow, { borderBottomColor: appColors.separator }]}>
         {WEEKDAY_LABELS.map((d, i) => (
-          <Text key={i} style={[styles.weekday, (i === 0 || i === 6) && styles.weekdayWeekend]}>{d}</Text>
+          <Text key={i} style={[styles.weekday, { color: appColors.labelTertiary }, (i === 0 || i === 6) && { opacity: 0.75 }]}>{d}</Text>
         ))}
       </View>
 
@@ -94,7 +96,8 @@ export function DatePickerCalendar(props: Props) {
               ]}>
                 <Text style={[
                   styles.dayText,
-                  !inMonth && styles.dayTextFaded,
+                  { color: appColors.label },
+                  !inMonth && { color: appColors.labelQuaternary },
                   isToday && selected && styles.dayTextToday,
                   selected && !isToday && { color: accentColor, fontWeight: '700' },
                 ]}>
@@ -110,22 +113,19 @@ export function DatePickerCalendar(props: Props) {
 }
 
 const styles = StyleSheet.create({
-  wrapper: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md },
+  wrapper: { borderRadius: radius.lg, padding: spacing.md },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   navBtn: { padding: spacing.xs },
-  monthLabel: { ...typography.subhead, color: colors.label, fontWeight: '600' },
+  monthLabel: { ...typography.subhead, fontWeight: '600' },
   weekdayRow: {
     flexDirection: 'row',
     paddingVertical: spacing.xs,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
   },
   weekday: {
     flex: 1, textAlign: 'center',
     fontSize: 11, fontWeight: '600',
-    color: colors.labelTertiary,
   },
-  weekdayWeekend: { color: colors.labelTertiary + 'BB' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', paddingTop: spacing.xs },
   dayCell: { width: `${100 / 7}%`, alignItems: 'center', paddingVertical: 4 },
   dayCellDisabled: { opacity: 0.4 },
@@ -133,8 +133,7 @@ const styles = StyleSheet.create({
     width: 32, height: 32, borderRadius: 16,
     alignItems: 'center', justifyContent: 'center',
   },
-  dayText: { fontSize: 14, fontWeight: '500', color: colors.label },
-  dayTextFaded: { color: colors.labelQuaternary },
+  dayText: { fontSize: 14, fontWeight: '500' },
   dayTextToday: { color: '#fff', fontWeight: '700' },
   dayFaded: {},
 });

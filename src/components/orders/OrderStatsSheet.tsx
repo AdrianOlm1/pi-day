@@ -10,10 +10,9 @@ import { Sheet } from '@/components/ui/Sheet';
 import { spacing, typography, colors, radius } from '@/theme';
 import { startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns';
 
-const ACCENT = '#6366F1';
-
 export function OrderStatsSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const appColors = useAppColors();
+  const accent = appColors.gradientFrom;
   const { orders, refresh: refreshOrders } = useOrders();
   const { settings, update } = useOrderReminderSettings();
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -46,12 +45,12 @@ export function OrderStatsSheet({ visible, onClose }: { visible: boolean; onClos
         <View style={[s.section, { borderBottomColor: appColors.separator }]}>
           <Text style={[s.sectionTitle, { color: appColors.labelSecondary }]}>Earnings</Text>
           <View style={s.statsRow}>
-            <View style={[s.statBox, { backgroundColor: ACCENT + '12', borderColor: ACCENT + '30' }]}>
-              <Text style={[s.statValue, { color: ACCENT }]}>${totalEarnings.toFixed(2)}</Text>
+            <View style={[s.statBox, { backgroundColor: accent + '12', borderColor: accent + '30' }]}>
+              <Text style={[s.statValue, { color: accent }]}>${totalEarnings.toFixed(2)}</Text>
               <Text style={[s.statLabel, { color: appColors.labelTertiary }]}>All time</Text>
             </View>
-            <View style={[s.statBox, { backgroundColor: ACCENT + '12', borderColor: ACCENT + '30' }]}>
-              <Text style={[s.statValue, { color: ACCENT }]}>${thisMonthEarnings.toFixed(2)}</Text>
+            <View style={[s.statBox, { backgroundColor: accent + '12', borderColor: accent + '30' }]}>
+              <Text style={[s.statValue, { color: accent }]}>${thisMonthEarnings.toFixed(2)}</Text>
               <Text style={[s.statLabel, { color: appColors.labelTertiary }]}>This month</Text>
             </View>
           </View>
@@ -62,7 +61,7 @@ export function OrderStatsSheet({ visible, onClose }: { visible: boolean; onClos
           <Text style={[s.sectionTitle, { color: appColors.labelSecondary }]}>Order reminders</Text>
 
           <View style={[s.toggleRow, { borderBottomColor: appColors.separator }]}>
-            <Ionicons name="notifications-outline" size={20} color={ACCENT} />
+            <Ionicons name="notifications-outline" size={20} color={accent} />
             <View style={s.toggleLabelCol}>
               <Text style={[s.toggleLabel, { color: appColors.label }]}>Daily reminder</Text>
               <Text style={[s.toggleSub, { color: appColors.labelTertiary }]}>
@@ -72,7 +71,7 @@ export function OrderStatsSheet({ visible, onClose }: { visible: boolean; onClos
             <Switch
               value={settings.dailyReminder}
               onValueChange={(v) => update({ dailyReminder: v })}
-              trackColor={{ true: ACCENT }}
+              trackColor={{ true: accent }}
               thumbColor="#fff"
             />
           </View>
@@ -83,7 +82,7 @@ export function OrderStatsSheet({ visible, onClose }: { visible: boolean; onClos
               style={[s.timeRow, { borderBottomColor: appColors.separator }]}
             >
               <Text style={[s.timeLabel, { color: appColors.label }]}>Daily at</Text>
-              <Text style={[s.timeValue, { color: ACCENT }]}>
+              <Text style={[s.timeValue, { color: accent }]}>
                 {timeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </Text>
             </Pressable>
@@ -105,14 +104,14 @@ export function OrderStatsSheet({ visible, onClose }: { visible: boolean; onClos
               />
               {Platform.OS === 'ios' && (
                 <Pressable onPress={() => setShowTimePicker(false)} style={s.timeDoneBtn}>
-                  <Text style={[s.timeDoneText, { color: ACCENT }]}>Done</Text>
+                  <Text style={[s.timeDoneText, { color: accent }]}>Done</Text>
                 </Pressable>
               )}
             </>
           )}
 
           <View style={[s.toggleRow, { borderBottomColor: appColors.separator }]}>
-            <Ionicons name="calendar-outline" size={20} color={ACCENT} />
+            <Ionicons name="calendar-outline" size={20} color={accent} />
             <View style={s.toggleLabelCol}>
               <Text style={[s.toggleLabel, { color: appColors.label }]}>1 week after creating</Text>
               <Text style={[s.toggleSub, { color: appColors.labelTertiary }]}>
@@ -122,13 +121,13 @@ export function OrderStatsSheet({ visible, onClose }: { visible: boolean; onClos
             <Switch
               value={settings.weekAfterCreate}
               onValueChange={(v) => update({ weekAfterCreate: v })}
-              trackColor={{ true: ACCENT }}
+              trackColor={{ true: accent }}
               thumbColor="#fff"
             />
           </View>
 
           <View style={[s.toggleRow, { borderBottomColor: appColors.separator }]}>
-            <Ionicons name="flag-outline" size={20} color={ACCENT} />
+            <Ionicons name="flag-outline" size={20} color={accent} />
             <View style={s.toggleLabelCol}>
               <Text style={[s.toggleLabel, { color: appColors.label }]}>On due date</Text>
               <Text style={[s.toggleSub, { color: appColors.labelTertiary }]}>
@@ -138,7 +137,23 @@ export function OrderStatsSheet({ visible, onClose }: { visible: boolean; onClos
             <Switch
               value={settings.onDueDate}
               onValueChange={(v) => update({ onDueDate: v })}
-              trackColor={{ true: ACCENT }}
+              trackColor={{ true: accent }}
+              thumbColor="#fff"
+            />
+          </View>
+
+          <View style={[s.toggleRow, { borderBottomColor: appColors.separator }]}>
+            <Ionicons name="stats-chart-outline" size={20} color={accent} />
+            <View style={s.toggleLabelCol}>
+              <Text style={[s.toggleLabel, { color: appColors.label }]}>Monthly recap</Text>
+              <Text style={[s.toggleSub, { color: appColors.labelTertiary }]}>
+                Summary on the 1st of each month
+              </Text>
+            </View>
+            <Switch
+              value={settings.monthlyRecap}
+              onValueChange={(v) => update({ monthlyRecap: v })}
+              trackColor={{ true: accent }}
               thumbColor="#fff"
             />
           </View>

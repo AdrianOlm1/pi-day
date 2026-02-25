@@ -12,12 +12,12 @@ import { USER_COLORS, USER_NAMES } from '@/utils/colors';
 
 // ─── Storage keys ────────────────────────────────────────────────────────────
 const KEYS = {
-  activeTheme:  'piday_active_theme',
-  fontScale:    'piday_font_scale',
-  colorAdrian:  'piday_color_adrian',
-  colorSarah:   'piday_color_sarah',
-  nameAdrian:   'piday_name_adrian',
-  nameSarah:    'piday_name_sarah',
+  activeTheme:   'piday_active_theme',
+  fontScale:     'piday_font_scale',
+  colorAdrian:   'piday_color_adrian',
+  colorSarah:    'piday_color_sarah',
+  nameAdrian:    'piday_name_adrian',
+  nameSarah:     'piday_name_sarah',
 } as const;
 
 export type FontSizeScale = 'compact' | 'default' | 'large';
@@ -87,9 +87,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Computed
   const activeTheme = useMemo(() => AC_THEMES[activeThemeId], [activeThemeId]);
-  const appColors   = useMemo(() => activeTheme.colors,       [activeTheme]);
+  const appColors   = useMemo(() => activeTheme.colors, [activeTheme]);
   const fontScale   = useMemo(() => FONT_SCALE_MAP[fontSizeScale], [fontSizeScale]);
 
   // Setters

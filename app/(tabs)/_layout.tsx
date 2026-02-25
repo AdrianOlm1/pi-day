@@ -5,18 +5,17 @@ import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { Ionicons } from '@expo/vector-icons';
 import { useUserMode } from '@/contexts/UserModeContext';
 import { useAppColors } from '@/contexts/ThemeContext';
-import { colors } from '@/theme';
 
 const TAB_CONFIG = [
-  { name: 'index',    label: 'Today',    active: 'home',            inactive: 'home-outline'          },
-  { name: 'calendar', label: 'Calendar', active: 'calendar',        inactive: 'calendar-outline'      },
-  { name: 'todo',     label: 'Goals',    active: 'flag',            inactive: 'flag-outline'          },
-  { name: 'orders',   label: 'Orders',   active: 'reader',          inactive: 'reader-outline'        },
-  { name: 'import',   label: 'More',     active: 'ellipsis-horizontal', inactive: 'ellipsis-horizontal-outline' },
+  { name: 'index',    label: 'Today',    active: 'home',            inactive: 'home-outline',          hidden: false },
+  { name: 'calendar', label: 'Calendar', active: 'calendar',        inactive: 'calendar-outline',      hidden: false },
+  { name: 'todo',     label: 'Goals',    active: 'flag',            inactive: 'flag-outline',          hidden: false },
+  { name: 'finance',  label: 'Finance',  active: 'wallet',          inactive: 'wallet-outline',        hidden: false },
+  { name: 'orders',   label: 'Orders',   active: 'reader',          inactive: 'reader-outline',        hidden: false },
 ] as const;
 
-function AnimatedTabIcon({ iconActive, iconInactive, focused, color }: {
-  iconActive: any; iconInactive: any; focused: boolean; color: string;
+function AnimatedTabIcon({ iconActive, iconInactive, focused, color, appColors }: {
+  iconActive: any; iconInactive: any; focused: boolean; color: string; appColors: { labelTertiary: string };
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -28,7 +27,7 @@ function AnimatedTabIcon({ iconActive, iconInactive, focused, color }: {
   return (
     <View style={s.iconWrap}>
       <Animated.View style={{ transform: [{ scale }] }}>
-        <Ionicons name={focused ? iconActive : iconInactive} size={24} color={focused ? color : colors.labelTertiary} />
+        <Ionicons name={focused ? iconActive : iconInactive} size={24} color={focused ? color : appColors.labelTertiary} />
       </Animated.View>
     </View>
   );
@@ -42,7 +41,7 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: userColor,
-        tabBarInactiveTintColor: colors.labelTertiary,
+        tabBarInactiveTintColor: appColors.labelTertiary,
         tabBarStyle: [s.tabBar, {
           backgroundColor: appColors.tabBarBackground,
           borderTopColor: appColors.tabBarBorder,
@@ -50,17 +49,18 @@ export default function TabLayout() {
         tabBarHideOnKeyboard: true,
       }}
     >
-      {TAB_CONFIG.map(({ name, label, active, inactive }) => (
+      {TAB_CONFIG.map(({ name, label, active, inactive, hidden }) => (
         <Tabs.Screen
           key={name}
           name={name}
           options={{
+            href: hidden ? null : undefined,
             title: label,
             tabBarLabel: ({ focused, color }) => (
-              <Text style={[s.tabLabel, { color: focused ? color : colors.labelTertiary }]}>{label}</Text>
+              <Text style={[s.tabLabel, { color: focused ? color : appColors.labelTertiary }]}>{label}</Text>
             ),
             tabBarIcon: ({ focused, color }) => (
-              <AnimatedTabIcon iconActive={active} iconInactive={inactive} focused={focused} color={color} />
+              <AnimatedTabIcon iconActive={active} iconInactive={inactive} focused={focused} color={color} appColors={appColors} />
             ),
           }}
         />
@@ -74,9 +74,7 @@ const s = StyleSheet.create({
     height: Platform.OS === 'ios' ? 84 : 64,
     paddingBottom: Platform.OS === 'ios' ? 26 : 8,
     paddingTop: 6,
-    backgroundColor: 'rgba(255,255,255,0.97)',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(0,0,0,0.09)',
     elevation: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
