@@ -7,10 +7,10 @@ import type { Order, OrderStatus } from '@/types';
 import { Sheet } from '@/components/ui/Sheet';
 import { spacing, typography, colors, radius } from '@/theme';
 
-const STATUS_CONFIG: Record<OrderStatus, { color: string; icon: string; next: string }> = {
-  Pending:       { color: '#F59E0B', icon: 'time-outline',          next: 'In Progress' },
-  'In Progress': { color: '#3B82F6', icon: 'hammer-outline',         next: 'Complete' },
-  Complete:      { color: '#22C55E', icon: 'checkmark-circle-outline', next: 'Pending' },
+const STATUS_CONFIG: Record<OrderStatus, { color: string; icon: string }> = {
+  Pending:       { color: '#F59E0B', icon: 'time-outline' },
+  'In Progress': { color: '#3B82F6', icon: 'hammer-outline' },
+  Complete:      { color: '#22C55E', icon: 'checkmark-circle-outline' },
 };
 
 interface OrderDetailSheetProps {
@@ -50,7 +50,7 @@ export function OrderDetailSheet({
   isArchived = false,
 }: OrderDetailSheetProps) {
   const cfg = STATUS_CONFIG[order.status];
-  const nextStatus = cfg.next as OrderStatus;
+  const isActiveInProgress = !isArchived && (order.status === 'In Progress' || order.status === 'Pending');
 
   const addedDate = order.created_at ? format(parseISO(order.created_at), 'MMM d, yyyy') : '';
   const dueDate = order.due_date ? format(parseISO(order.due_date), 'MMM d, yyyy') : '';
@@ -116,22 +116,13 @@ export function OrderDetailSheet({
       </View>
 
       <View style={styles.actions}>
-        {!isArchived && order.status !== 'Complete' && (
+        {isActiveInProgress && onArchive && (
           <Pressable
-            style={[styles.primaryBtn, { backgroundColor: cfg.color + '18', borderColor: cfg.color + '50' }]}
-            onPress={() => onChangeStatus(order.id, nextStatus)}
-          >
-            <Ionicons name="arrow-forward" size={16} color={cfg.color} />
-            <Text style={[styles.primaryBtnText, { color: cfg.color }]}>{nextStatus}</Text>
-          </Pressable>
-        )}
-        {!isArchived && order.status === 'Complete' && onArchive && (
-          <Pressable
-            style={[styles.secondaryBtn, { borderColor: colors.labelTertiary }]}
+            style={[styles.primaryBtn, { backgroundColor: '#22C55E18', borderColor: '#22C55E50' }]}
             onPress={() => { onClose(); onArchive(order.id); }}
           >
-            <Ionicons name="archive-outline" size={16} color={colors.labelSecondary} />
-            <Text style={styles.secondaryBtnText}>Archive</Text>
+            <Ionicons name="checkmark-done-outline" size={16} color="#22C55E" />
+            <Text style={[styles.primaryBtnText, { color: '#22C55E' }]}>Complete</Text>
           </Pressable>
         )}
         <Pressable style={[styles.secondaryBtn, { borderColor: colors.labelTertiary }]} onPress={handleEdit}>

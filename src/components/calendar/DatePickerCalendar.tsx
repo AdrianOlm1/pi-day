@@ -24,7 +24,12 @@ export interface DatePickerCalendarMultiProps {
   accentColor?: string;
 }
 
-type Props = DatePickerCalendarSingleProps | DatePickerCalendarMultiProps;
+/** When true, uses high-contrast styling so the calendar is visible when embedded in cards. */
+export interface DatePickerCalendarEmbeddedProps {
+  embedded?: boolean;
+}
+
+type Props = (DatePickerCalendarSingleProps | DatePickerCalendarMultiProps) & DatePickerCalendarEmbeddedProps;
 
 function isSingleProps(p: Props): p is DatePickerCalendarSingleProps {
   return 'selectedDate' in p && 'onSelectDate' in p;
@@ -32,6 +37,7 @@ function isSingleProps(p: Props): p is DatePickerCalendarSingleProps {
 
 export function DatePickerCalendar(props: Props) {
   const appColors = useAppColors();
+  const embedded = props.embedded === true;
   const accentColor = props.accentColor ?? appColors.gradientFrom;
   const [viewMonth, setViewMonth] = useState(() => {
     if (isSingleProps(props) && props.selectedDate) return startOfMonth(props.selectedDate);
@@ -41,21 +47,28 @@ export function DatePickerCalendar(props: Props) {
   const days = useMemo(() => getMonthGrid(viewMonth), [viewMonth]);
   const today = startOfDay(new Date());
 
+  const wrapperBg = embedded ? '#E5E7EB' : appColors.surface;
+  const textColor = embedded ? '#111827' : appColors.label;
+  const secondaryTextColor = embedded ? '#4B5563' : appColors.labelTertiary;
+  const fadedColor = embedded ? '#9CA3AF' : appColors.labelQuaternary;
+  const borderColor = embedded ? '#D1D5DB' : appColors.separator;
+  const dayCircleBg = embedded ? '#F9FAFB' : undefined;
+
   return (
-    <View style={[styles.wrapper, { backgroundColor: appColors.surface }]}>
+    <View style={[styles.wrapper, { backgroundColor: wrapperBg }, embedded && styles.wrapperEmbedded]}>
       <View style={styles.header}>
         <Pressable onPress={() => setViewMonth((m) => subMonths(m, 1))} style={styles.navBtn} hitSlop={8}>
-          <Ionicons name="chevron-back" size={20} color={appColors.label} />
+          <Ionicons name="chevron-back" size={20} color={textColor} />
         </Pressable>
-        <Text style={[styles.monthLabel, { color: appColors.label }]}>{viewMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}</Text>
+        <Text style={[styles.monthLabel, { color: textColor }]}>{viewMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}</Text>
         <Pressable onPress={() => setViewMonth((m) => addMonths(m, 1))} style={styles.navBtn} hitSlop={8}>
-          <Ionicons name="chevron-forward" size={20} color={appColors.label} />
+          <Ionicons name="chevron-forward" size={20} color={textColor} />
         </Pressable>
       </View>
 
-      <View style={[styles.weekdayRow, { borderBottomColor: appColors.separator }]}>
+      <View style={[styles.weekdayRow, { borderBottomColor: borderColor }]}>
         {WEEKDAY_LABELS.map((d, i) => (
-          <Text key={i} style={[styles.weekday, { color: appColors.labelTertiary }, (i === 0 || i === 6) && { opacity: 0.75 }]}>{d}</Text>
+          <Text key={i} style={[styles.weekday, { color: secondaryTextColor }, (i === 0 || i === 6) && { opacity: 0.85 }]}>{d}</Text>
         ))}
       </View>
 
@@ -90,14 +103,15 @@ export function DatePickerCalendar(props: Props) {
             >
               <View style={[
                 styles.dayCircle,
+                embedded && !selected && !isToday && { backgroundColor: dayCircleBg },
                 isToday && { backgroundColor: accentColor },
-                selected && !isToday && { borderWidth: 2, borderColor: accentColor, backgroundColor: accentColor + '20' },
+                selected && !isToday && { borderWidth: 2, borderColor: accentColor, backgroundColor: accentColor + '25' },
                 !inMonth && styles.dayFaded,
               ]}>
                 <Text style={[
                   styles.dayText,
-                  { color: appColors.label },
-                  !inMonth && { color: appColors.labelQuaternary },
+                  { color: textColor },
+                  !inMonth && { color: fadedColor },
                   isToday && selected && styles.dayTextToday,
                   selected && !isToday && { color: accentColor, fontWeight: '700' },
                 ]}>
@@ -114,6 +128,7 @@ export function DatePickerCalendar(props: Props) {
 
 const styles = StyleSheet.create({
   wrapper: { borderRadius: radius.lg, padding: spacing.md },
+  wrapperEmbedded: { borderWidth: 1, borderColor: '#D1D5DB', minHeight: 260 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   navBtn: { padding: spacing.xs },
   monthLabel: { ...typography.subhead, fontWeight: '600' },

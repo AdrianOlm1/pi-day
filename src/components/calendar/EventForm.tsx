@@ -140,8 +140,26 @@ export function EventForm({ initialDate, onSave, onCancel }: EventFormProps) {
   const selectedCategory = getCategoryById(categoryId) ?? defaultCategory;
 
   return (
-    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-      <Text style={styles.heading}>New Event</Text>
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.formContainer}
+    >
+      <View style={styles.headerRow}>
+        <Text style={styles.heading}>New Event</Text>
+        <Pressable
+          onPress={handleSave}
+          hitSlop={8}
+          disabled={saving || !title.trim()}
+          style={[
+            styles.quickAddBtn,
+            { borderColor: userColor },
+            (saving || !title.trim()) && { opacity: 0.4 },
+          ]}
+        >
+          <Ionicons name="add" size={18} color={userColor} />
+        </Pressable>
+      </View>
 
       <TextInput label="Title" value={title} onChangeText={setTitle}
         placeholder="What's happening?" accentColor={userColor} />
@@ -211,7 +229,7 @@ export function EventForm({ initialDate, onSave, onCancel }: EventFormProps) {
         <Switch value={allDay} onValueChange={setAllDay} trackColor={{ true: userColor }} thumbColor="#fff" />
       </View>
 
-      {!allDay && (
+      {!allDay && eventDaysMode !== 'one' && (
         <View style={styles.timeRowWrap}>
           <View style={styles.timeLabelsRow}>
             <Text style={styles.timePickerLabel}>Start</Text>
@@ -317,7 +335,27 @@ export function EventForm({ initialDate, onSave, onCancel }: EventFormProps) {
 }
 
 const styles = StyleSheet.create({
-  heading: { ...typography.title2, color: colors.label, marginBottom: spacing.xl },
+  formContainer: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xxl,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+  },
+  heading: { ...typography.title2, color: colors.label },
+  quickAddBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.fillSecondary,
+  },
   sectionLabel: { ...typography.subhead, color: colors.labelSecondary, marginBottom: spacing.sm },
   daysModeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
   daysModeChip: {

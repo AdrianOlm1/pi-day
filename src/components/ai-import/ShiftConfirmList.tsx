@@ -6,6 +6,7 @@ import { format, parseISO } from 'date-fns';
 import type { ParsedShift } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { spacing, typography, colors, radius, shadows } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 interface ShiftConfirmListProps {
   shifts: ParsedShift[];
@@ -15,7 +16,9 @@ interface ShiftConfirmListProps {
   loading?: boolean;
 }
 
-export function ShiftConfirmList({ shifts, onConfirm, onCancel, accentColor = '#3B82F6', loading = false }: ShiftConfirmListProps) {
+export function ShiftConfirmList({ shifts, onConfirm, onCancel, accentColor: accentColorProp, loading = false }: ShiftConfirmListProps) {
+  const appColors = useAppColors();
+  const accentColor = accentColorProp ?? appColors.gradientFrom;
   const [selected, setSelected] = useState<Set<number>>(new Set(shifts.map((_, i) => i)));
 
   function toggle(idx: number) {

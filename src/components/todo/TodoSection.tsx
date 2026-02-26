@@ -1,12 +1,13 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Pressable, TextInput, StyleSheet, Alert, Animated,
 } from 'react-native';
+import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { Ionicons } from '@expo/vector-icons';
 import type { Todo, TodoOwner } from '@/types';
 import { formatTime } from '@/utils/date';
-import { playTrash } from '@/utils/sounds';
+import { playTrash, playCheck } from '@/utils/sounds';
 import { useAppColors } from '@/contexts/ThemeContext';
 import { spacing, typography, radius, shadows } from '@/theme';
 
@@ -21,34 +22,94 @@ function formatDueTime(todo: Todo): string | null {
   }
 }
 
+function formatDueTimeString(dueTime: string | null): string | null {
+  if (!dueTime || !dueTime.trim()) return null;
+  const part = dueTime.length >= 5 ? dueTime.slice(0, 5) : dueTime;
+  try {
+    return formatTime(`2000-01-01T${part}:00`);
+  } catch {
+    return dueTime;
+  }
+}
+
+/** Unified item for Today: task (todo) or daily goal. */
+export interface DailyItem {
+  id: string;
+  title: string;
+  done: boolean;
+  due_time: string | null;
+  onToggle: () => void;
+  onRemove: () => void;
+}
+
 interface TodoSectionProps {
   owner: TodoOwner;
   label: string;
   color: string;
-  todos: Todo[];
+  todos?: Todo[];
+  /** When set, shows a unified list (daily goals) instead of todos. Takes precedence over todos. */
+  items?: DailyItem[];
   onAdd: (title: string) => void;
   onToggle: (id: string, done: boolean) => void;
   onRemove: (id: string) => void;
   showAddInput?: boolean;
-  /** When true, omit the header (label + meta); no separator is shown. */
   hideSectionHeader?: boolean;
-  /** When set, tasks can be reordered by long-press and drag. New order is reported here. */
-  onReorder?: (orderedTodos: Todo[]) => void;
+  /** When set with items, list becomes draggable; callback receives new order of DailyItems. */
+  onReorder?: (orderedItems: DailyItem[]) => void;
 }
 
-export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRemove, showAddInput = true, hideSectionHeader = false, onReorder }: TodoSectionProps) {
+export function TodoSection({ owner, label, color, todos = [], items: itemsProp, onAdd, onToggle, onRemove, showAddInput = true, hideSectionHeader = false, onReorder }: TodoSectionProps): React.JSX.Element {
   const appColors = useAppColors();
   const [inputText, setInputText] = useState('');
   const [inputFocused, setInputFocused] = useState(false);
 
   function handleAdd() {
     if (!inputText.trim()) return;
+    hapticLight();
     onAdd(inputText.trim());
     setInputText('');
   }
 
-  const remaining = todos.filter((t) => !t.done).length;
-  const done = todos.filter((t) => t.done).length;
+  const items: DailyItem[] = itemsProp ?? todos.map((t) => ({
+    id: t.id,
+    title: t.title,
+    done: t.done,
+    due_time: t.due_time,
+    onToggle: () => { playCheck(); onToggle(t.id, !t.done); },
+    onRemove: () => {
+      Alert.alert('Remove item', 'Delete this task?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => { playTrash(); onRemove(t.id); } },
+      ]);
+    },
+  }));
+
+  const isDraggable = items.length > 0 && itemsProp != null && onReorder != null;
+
+  const remaining = items.filter((i) => !i.done).length;
+  const done = items.filter((i) => i.done).length;
+
+  const renderDraggableRow = ({ item, drag, isActive, getIndex }: RenderItemParams<DailyItem>) => {
+    const idx = getIndex();
+    const showDivider = idx != null && idx < items.length - 1;
+    return (
+      <ScaleDecorator activeScale={1.02}>
+        <Pressable onLongPress={drag} delayLongPress={200} style={{ flex: 1 }}>
+          <TodoRow
+            todo={{ id: item.id, title: item.title, done: item.done, due_time: item.due_time, due_date: null } as Todo}
+            color={color}
+            appColors={appColors}
+            showDivider={showDivider}
+            onToggle={item.onToggle}
+            onRemove={item.onRemove}
+            dueTimeDisplay={item.due_time ? formatDueTimeString(item.due_time) : null}
+            onLongPress={drag}
+            isDragging={isActive}
+          />
+        </Pressable>
+      </ScaleDecorator>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: appColors.surface }]}>
@@ -69,26 +130,39 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
         </View>
       )}
 
-      {/* Todo items */}
-      {todos.length > 0 ? (
-        <View style={styles.list}>
-          {todos.map((todo, idx) => (
-            <TodoRow
-              key={todo.id}
-              todo={todo}
-              color={color}
-              appColors={appColors}
-              showDivider={idx < todos.length - 1}
-              onToggle={() => onToggle(todo.id, !todo.done)}
-              onRemove={() =>
-                Alert.alert('Remove item', 'Delete this task?', [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Delete', style: 'destructive', onPress: () => { playTrash(); onRemove(todo.id); } },
-                ])
-              }
-            />
-          ))}
-        </View>
+      {/* List: draggable when onReorder + items provided, otherwise static */}
+      {items.length > 0 ? (
+        isDraggable ? (
+          <DraggableFlatList<DailyItem>
+            data={items}
+            keyExtractor={(item) => item.id}
+            onDragEnd={({ data }) => onReorder?.(data)}
+            renderItem={renderDraggableRow}
+            style={styles.draggableList}
+            scrollEnabled={false}
+            animationConfig={{
+              damping: 22,
+              mass: 0.2,
+              stiffness: 90,
+              overshootClamping: false,
+            }}
+          />
+        ) : (
+          <View style={styles.list}>
+            {items.map((item, idx) => (
+              <TodoRow
+                key={item.id}
+                todo={{ id: item.id, title: item.title, done: item.done, due_time: item.due_time, due_date: null } as Todo}
+                color={color}
+                appColors={appColors}
+                showDivider={idx < items.length - 1}
+                onToggle={item.onToggle}
+                onRemove={item.onRemove}
+                dueTimeDisplay={item.due_time ? formatDueTimeString(item.due_time) : null}
+              />
+            ))}
+          </View>
+        )
       ) : null}
 
       {/* Add input (optional, e.g. hidden when using FAB) */}
@@ -98,7 +172,7 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
             style={[styles.addInput, { color: appColors.label }]}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="Add a task…"
+            placeholder="Add a daily goal…"
             placeholderTextColor={appColors.labelTertiary}
             returnKeyType="done"
             onSubmitEditing={handleAdd}
@@ -119,26 +193,41 @@ export function TodoSection({ owner, label, color, todos, onAdd, onToggle, onRem
 }
 
 function TodoRow({
-  todo, color, appColors, onToggle, onRemove, showDivider, onLongPress, isDragging,
+  todo, color, appColors, onToggle, onRemove, showDivider, onLongPress, isDragging, dueTimeDisplay,
 }: {
   todo: Todo; color: string; appColors: ReturnType<typeof useAppColors>; onToggle: () => void; onRemove: () => void; showDivider: boolean;
   onLongPress?: () => void; isDragging?: boolean;
+  /** When set, used instead of formatDueTime(todo) for display (e.g. for unified goal items that only have due_time). */
+  dueTimeDisplay?: string | null;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const checkScale = useRef(new Animated.Value(todo.done ? 1 : 0)).current;
-  const dueTimeStr = formatDueTime(todo);
+  const sparkle = useRef(new Animated.Value(0)).current;
+  const [showSparkle, setShowSparkle] = useState(false);
+  const dueTimeStr = dueTimeDisplay ?? formatDueTime(todo);
+
+  useEffect(() => {
+    if (!showSparkle) return;
+    sparkle.setValue(0);
+    Animated.sequence([
+      Animated.timing(sparkle, { toValue: 1, duration: 280, useNativeDriver: true }),
+      Animated.timing(sparkle, { toValue: 0, duration: 0, useNativeDriver: true }),
+    ]).start(() => setShowSparkle(false));
+  }, [showSparkle, sparkle]);
 
   function handleToggle() {
+    const completing = !todo.done;
     Animated.sequence([
       Animated.spring(scale, { toValue: 0.95, useNativeDriver: true, damping: 20, stiffness: 400 }),
       Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 300 }),
     ]).start();
     Animated.spring(checkScale, {
-      toValue: todo.done ? 0 : 1,
+      toValue: completing ? 1 : 0,
       useNativeDriver: true,
       damping: 14,
       stiffness: 300,
     }).start();
+    if (completing) setShowSparkle(true);
     onToggle();
   }
 
@@ -146,7 +235,14 @@ function TodoRow({
     styles.item,
     showDivider && [styles.itemDivider, { borderBottomColor: appColors.separator }],
     { transform: [{ scale }] },
-    isDragging && { opacity: 0.9, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+    isDragging && {
+      opacity: 0.95,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+      elevation: 6,
+    },
   ];
 
   const rowContent = (
@@ -156,6 +252,18 @@ function TodoRow({
           <Animated.View style={{ transform: [{ scale: checkScale }] }}>
             <Ionicons name="checkmark" size={13} color="#fff" />
           </Animated.View>
+          {showSparkle && (
+            <Animated.View
+              style={[
+                styles.checkboxSparkle,
+                {
+                  backgroundColor: color,
+                  opacity: sparkle.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0.5, 0] }),
+                  transform: [{ scale: sparkle.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1.9] }) }],
+                },
+              ]}
+            />
+          )}
         </View>
       </Pressable>
 
@@ -218,6 +326,7 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: '700' },
   doneCount: { ...typography.caption },
   list: { paddingHorizontal: spacing.lg },
+  draggableList: { paddingHorizontal: spacing.lg, flexGrow: 0 },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -235,6 +344,15 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
+  },
+  checkboxSparkle: {
+    position: 'absolute',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    top: -11,
+    left: -11,
   },
   itemText: { flex: 1, ...typography.body },
   itemDone: { textDecorationLine: 'line-through' },

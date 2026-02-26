@@ -1,13 +1,37 @@
-import React from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { View, StyleSheet, Pressable, Animated } from 'react-native';
+import AnimatedReanimated, { FadeInDown } from 'react-native-reanimated';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { Ionicons } from '@expo/vector-icons';
 import { formatTime } from '@/utils/date';
 import { useCategories } from '@/hooks/useCategories';
+import { useEmptyStateMessage } from '@/hooks/useEmptyStateMessage';
+import { EMPTY_SCHEDULE } from '@/utils/emptyStateMessages';
+import { getComfortLine } from '@/utils/greetings';
 import { USER_NAMES } from '@/utils/colors';
 import type { EventOccurrence } from '@/types';
 import { spacing, typography, radius } from '@/theme';
 import { useAppColors } from '@/contexts/ThemeContext';
+
+function EmptyStateAnimated({ appColors }: { appColors: ReturnType<typeof useAppColors> }) {
+  const msg = useEmptyStateMessage(EMPTY_SCHEDULE);
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(10)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: 420, useNativeDriver: true }),
+      Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 180 }),
+    ]).start();
+  }, [opacity, translateY]);
+  const comfortLine = getComfortLine(new Date().toISOString().slice(0, 10));
+  return (
+    <Animated.View style={[styles.empty, { opacity, transform: [{ translateY }] }]}>
+      <Text style={[styles.emptyText, { color: appColors.labelSecondary }]}>{msg.title}</Text>
+      {msg.subtitle ? <Text style={[styles.emptySubtext, { color: appColors.labelTertiary }]}>{msg.subtitle}</Text> : null}
+      <Text style={[styles.emptyComfort, { color: appColors.labelQuaternary }]}>{comfortLine}</Text>
+    </Animated.View>
+  );
+}
 
 export function eventOccurrenceKey(ev: EventOccurrence): string {
   return `${ev.id}_${ev.occurrence_date}`;
@@ -25,12 +49,7 @@ export function TodayEvents({ events, checkable, completedKeys, onToggle }: Toda
   const appColors = useAppColors();
 
   if (events.length === 0) {
-    return (
-      <View style={styles.empty}>
-        <Text style={[styles.emptyText, { color: appColors.labelSecondary }]}>Nothing scheduled today</Text>
-        <Text style={[styles.emptySubtext, { color: appColors.labelTertiary }]}>Enjoy your free time</Text>
-      </View>
-    );
+    return <EmptyStateAnimated appColors={appColors} />;
   }
 
   return (
@@ -41,7 +60,11 @@ export function TodayEvents({ events, checkable, completedKeys, onToggle }: Toda
         const category = getCategoryById(ev.category_id ?? null);
         const color = category?.color ?? ev.color;
         return (
-          <View key={key} style={[styles.card, idx < events.length - 1 && [styles.cardBorder, { borderBottomColor: appColors.separator }]]}>
+          <AnimatedReanimated.View
+            key={key}
+            entering={FadeInDown.delay(idx * 45).duration(260)}
+            style={[styles.card, idx < events.length - 1 && [styles.cardBorder, { borderBottomColor: appColors.separator }]]}
+          >
             {checkable && (
               <Pressable
                 style={[styles.checkbox, completed && styles.checkboxChecked]}
@@ -79,7 +102,7 @@ export function TodayEvents({ events, checkable, completedKeys, onToggle }: Toda
                 <Text style={[styles.notes, { color: appColors.labelSecondary }, completed && styles.textStrike]} numberOfLines={1}>{ev.notes}</Text>
               ) : null}
             </View>
-          </View>
+          </AnimatedReanimated.View>
         );
       })}
     </View>
@@ -88,9 +111,10 @@ export function TodayEvents({ events, checkable, completedKeys, onToggle }: Toda
 
 const styles = StyleSheet.create({
   container: {},
-  empty: { alignItems: 'center', paddingVertical: spacing.xxxl },
-  emptyText: { ...typography.callout, marginBottom: spacing.xs },
-  emptySubtext: { ...typography.body },
+  empty: { alignItems: 'center', paddingVertical: spacing.xxxl, maxWidth: 320, alignSelf: 'center' },
+  emptyText: { ...typography.callout, marginBottom: spacing.xs, textAlign: 'center' },
+  emptySubtext: { ...typography.body, textAlign: 'center' },
+  emptyComfort: { ...typography.caption, fontStyle: 'italic', textAlign: 'center', marginTop: spacing.sm },
   checkbox: { justifyContent: 'center', paddingRight: spacing.xs },
   checkboxChecked: {},
   textStrike: { textDecorationLine: 'line-through', opacity: 0.7 },

@@ -40,7 +40,7 @@ export function useGoals(userId: UserId) {
       const comps  = await fetchCompletions(allIds);
       setCompletions(comps);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load habits');
+      setError(e.message ?? 'Failed to load goals');
     } finally {
       setLoading(false);
     }
@@ -86,7 +86,7 @@ export function useGoals(userId: UserId) {
     [completions],
   );
 
-  /** Has `owner` checked into `habitId` today? (binary) or achieved period target? (metric) */
+  /** Has `owner` checked into `habitId` this period? (binary) or achieved period target? (metric) */
   const isCheckedIn = useCallback(
     (habitId: string, owner: UserId, goal?: Goal): boolean => {
       const g = goal ?? goals.find((x) => x.id === habitId);
@@ -94,8 +94,13 @@ export function useGoals(userId: UserId) {
         const amount = currentPeriodAmount(habitId, owner, g.period_type);
         return amount >= g.metric_target;
       }
+      const periodType = g?.period_type ?? 'daily';
+      const currentKey = getPeriodKey(new Date(), periodType);
       return completions.some(
-        (c) => c.habit_id === habitId && c.owner === owner && c.date === todayStr(),
+        (c) =>
+          c.habit_id === habitId &&
+          c.owner === owner &&
+          getPeriodKey(new Date(c.date + 'T12:00:00'), periodType) === currentKey,
       );
     },
     [completions, goals, currentPeriodAmount],
@@ -114,6 +119,64 @@ export function useGoals(userId: UserId) {
       );
     },
     [completions],
+  );
+
+  /** Number of current user's goals completed this period (for encouragement / celebration) */
+  const completedTodayCount = goals.filter((g) => isCheckedIn(g.id, userId, g)).length;
+
+  /** Goals that appear on a given date: daily (repeating or due that day) OR long-term goals whose deadline is on or after that date. */
+  const dailyGoalsForDate = useCallback(
+    (dateStr: string): Goal[] =>
+      goals.filter(
+        (g) =>
+          g.owner === userId &&
+          (g.period_type === 'daily'
+            ? (g.repeating !== false || g.due_date === dateStr)
+            : g.period_type === 'long_term' && g.target_end_date != null && g.target_end_date >= dateStr),
+      ),
+    [goals, userId],
+  );
+
+  /** Goals to show in calendar day view: daily (repeating or due that day, respect active_days), weekly (for week containing date), long-term (target_end_date on that day). */
+  const goalsForCalendarDate = useCallback(
+    (dateStr: string): Goal[] => {
+      const d = new Date(dateStr + 'T12:00:00');
+      const dayOfWeek = d.getDay();
+      const weekKey = getPeriodKey(d, 'weekly');
+      return goals.filter((g) => {
+        if (g.owner !== userId) return false;
+        if (g.period_type === 'daily') {
+          const applies = g.repeating !== false || g.due_date === dateStr;
+          if (!applies) return false;
+          if (g.active_days != null && g.active_days.length > 0) {
+            return g.active_days.includes(dayOfWeek);
+          }
+          return true;
+        }
+        if (g.period_type === 'weekly') return true;
+        if (g.period_type === 'long_term') return g.target_end_date === dateStr;
+        return false;
+      });
+    },
+    [goals, userId],
+  );
+
+  /** Whether the goal was checked in for the period containing the given date (for calendar past/future). */
+  const isCheckedInForDate = useCallback(
+    (goal: Goal, dateStr: string): boolean => {
+      const d = new Date(dateStr + 'T12:00:00');
+      const periodKey = getPeriodKey(d, goal.period_type);
+      if (goal.metric_target != null) {
+        const c = completions.find(
+          (x) => x.habit_id === goal.id && x.owner === userId && x.date === periodKey,
+        );
+        return c != null && (c.amount ?? 0) >= (goal.metric_target ?? 0);
+      }
+      return completions.some(
+        (c) => c.habit_id === goal.id && c.owner === userId && c.date === periodKey,
+      );
+    },
+    [completions, userId],
   );
 
   // ── mutations ────────────────────────────────────────────────────────────────
@@ -299,6 +362,10 @@ export function useGoals(userId: UserId) {
     isCheckedIn,
     currentPeriodKey,
     currentPeriodAmount,
+    completedTodayCount,
+    dailyGoalsForDate,
+    goalsForCalendarDate,
+    isCheckedInForDate,
     logMetricProgress,
     resetMetricPeriod,
     recentDates,

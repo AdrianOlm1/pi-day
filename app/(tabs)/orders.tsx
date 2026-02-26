@@ -6,7 +6,6 @@ import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppColors } from '@/contexts/ThemeContext';
 import { useOrders } from '@/hooks/useOrders';
 import { useOrderReminderSettings } from '@/hooks/useOrderReminderSettings';
 import { rescheduleAllOrderReminders } from '@/services/notifications';
@@ -15,29 +14,24 @@ import { OrderForm } from '@/components/orders/OrderForm';
 import { OrderDetailSheet } from '@/components/orders/OrderDetailSheet';
 import { OrderStatsSheet } from '@/components/orders/OrderStatsSheet';
 import { Sheet } from '@/components/ui/Sheet';
+import Reanimated from 'react-native-reanimated';
+import { FadeInDown } from 'react-native-reanimated';
 import { playMenuOpen } from '@/utils/sounds';
+import { hapticMedium } from '@/utils/haptics';
 import { EmptyState } from '@/components/ui/EmptyState';
-import type { Order, OrderStatus } from '@/types';
+import { EMPTY_ORDERS, EMPTY_ORDERS_ARCHIVED } from '@/utils/emptyStateMessages';
+import { getComfortLineForTab } from '@/utils/greetings';
+import type { Order } from '@/types';
 import { spacing, typography, colors, radius, shadows } from '@/theme';
+import { parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 
-type FilterStatus = 'All' | OrderStatus;
-const FILTERS: FilterStatus[] = ['All', 'Pending', 'In Progress', 'Complete'];
-
-/** Distinct colors for order status (stat pills + filter chips). Matches OrderDetailSheet / OrderForm. */
-const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
-  Pending:       '#F59E0B', // amber
-  'In Progress': '#3B82F6', // blue
-  Complete:      '#22C55E', // green
-};
+/** Orders tab has its own theme — blue/green/yellow pills, purple accent */
+const IN_PROGRESS_COLOR = '#3B82F6';
+const COMPLETED_THIS_WEEK_GREEN = '#22C55E';
+const COMPLETED_THIS_MONTH_YELLOW = '#EAB308';
+const ORDERS_ACCENT = '#6366F1';
 
 type ListMode = 'active' | 'archived';
-
-const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 84 : 64;
-
-function getStatusColor(status: FilterStatus): string {
-  if (status === 'All') return colors.info;
-  return ORDER_STATUS_COLORS[status];
-}
 
 function StatPill({ label, count, color, labelColor }: { label: string; count: number; color: string; labelColor: string }) {
   return (
@@ -55,7 +49,6 @@ const pill = StyleSheet.create({
 });
 
 export default function OrdersScreen() {
-  const appColors = useAppColors();
   const router = useRouter();
   const { orderId: orderIdParam } = useLocalSearchParams<{ orderId?: string }>();
   const { orders, loading, refresh, addOrder, editOrder, changeStatus, remove, archiveOrder } = useOrders();
@@ -64,8 +57,7 @@ export default function OrdersScreen() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [listMode, setListMode] = useState<ListMode>('active');
-  const [filter, setFilter] = useState<FilterStatus>('All');
-  const [archivedSearch, setArchivedSearch] = useState('');
+  const [completedSearch, setCompletedSearch] = useState('');
   const [showOrderStats, setShowOrderStats] = useState(false);
   const fabScale = useRef(new Animated.Value(1)).current;
 
@@ -90,26 +82,46 @@ export default function OrdersScreen() {
   );
 
   const activeOrders = orders.filter((o) => !o.archived);
-  const archivedOrders = orders.filter((o) => !!o.archived);
-  const pending    = activeOrders.filter((o) => o.status === 'Pending').length;
-  const inProgress = activeOrders.filter((o) => o.status === 'In Progress').length;
-  const complete   = activeOrders.filter((o) => o.status === 'Complete').length;
+  const completedOrders = orders.filter((o) => !!o.archived);
+  const inProgressCount = activeOrders.filter((o) => o.status === 'In Progress' || o.status === 'Pending').length;
 
-  const filteredActive = filter === 'All' ? activeOrders : activeOrders.filter((o) => o.status === filter);
-  const searchLower = archivedSearch.trim().toLowerCase();
-  const filteredArchived = useMemo(
+  const now = new Date();
+  const weekStart = startOfWeek(now, { weekStartsOn: 0 });
+  const weekEnd = endOfWeek(now, { weekStartsOn: 0 });
+  const monthStart = startOfMonth(now);
+  const monthEnd = endOfMonth(now);
+  const completedThisWeek = completedOrders.filter((o) => {
+    try {
+      const d = parseISO(o.updated_at);
+      return isWithinInterval(d, { start: weekStart, end: weekEnd });
+    } catch {
+      return false;
+    }
+  }).length;
+  const completedThisMonth = completedOrders.filter((o) => {
+    try {
+      const d = parseISO(o.updated_at);
+      return isWithinInterval(d, { start: monthStart, end: monthEnd });
+    } catch {
+      return false;
+    }
+  }).length;
+
+  const filteredActive = activeOrders.filter((o) => o.status === 'In Progress' || o.status === 'Pending');
+  const searchLower = completedSearch.trim().toLowerCase();
+  const filteredCompleted = useMemo(
     () =>
       searchLower
-        ? archivedOrders.filter(
+        ? completedOrders.filter(
             (o) =>
               o.customer_name.toLowerCase().includes(searchLower) ||
               o.description.toLowerCase().includes(searchLower) ||
               (o.design_notes && o.design_notes.toLowerCase().includes(searchLower)),
           )
-        : archivedOrders,
-    [archivedOrders, searchLower],
+        : completedOrders,
+    [completedOrders, searchLower],
   );
-  const displayList = listMode === 'archived' ? filteredArchived : filteredActive;
+  const displayList = listMode === 'archived' ? filteredCompleted : filteredActive;
 
   async function handleSave(data: Omit<Order, 'id' | 'created_at' | 'updated_at'>) {
     if (editingOrder) await editOrder(editingOrder.id, data);
@@ -128,13 +140,15 @@ export default function OrdersScreen() {
     <SafeAreaView style={[s.safe, { backgroundColor: colors.surface }]} edges={['top']}>
       <OrderStatsSheet visible={showOrderStats} onClose={() => setShowOrderStats(false)} />
 
-      {/* Order banner — only themed area */}
-      <View style={[s.header, { backgroundColor: appColors.surface, borderBottomColor: appColors.separator }]}>
+      <View style={[s.header, { backgroundColor: colors.surface, borderBottomColor: colors.separator }]}>
         <View style={s.headerLeft}>
-          <View style={[s.iconBadge, { backgroundColor: appColors.gradientFrom + '14' }]}>
-            <Ionicons name="reader" size={20} color={appColors.gradientFrom} />
+          <View style={[s.iconBadge, { backgroundColor: ORDERS_ACCENT + '14' }]}>
+            <Ionicons name="reader" size={20} color={ORDERS_ACCENT} />
           </View>
-          <Text style={[s.title, { color: appColors.label }]}>Orders</Text>
+          <View>
+            <Text style={[s.title, { color: colors.label }]}>Orders</Text>
+            <Text style={[s.headerComfort, { color: colors.labelTertiary }]}>{getComfortLineForTab('orders', new Date().toISOString().slice(0, 10))}</Text>
+          </View>
         </View>
         <View style={s.headerRight}>
           <Pressable onPress={() => { playMenuOpen(); setShowOrderStats(true); }} hitSlop={8} style={s.statsBtn}>
@@ -144,18 +158,18 @@ export default function OrdersScreen() {
       </View>
 
       <View style={[s.contentWrap, { backgroundColor: colors.background }]}>
-      {/* Stats */}
-      <View style={[s.statsRow, { backgroundColor: colors.surface, borderBottomColor: colors.separator }]}>
-        <StatPill label="Pending"     count={pending}    color={getStatusColor('Pending')}     labelColor={colors.labelSecondary} />
-        <StatPill label="In Progress" count={inProgress} color={getStatusColor('In Progress')} labelColor={colors.labelSecondary} />
-        <StatPill label="Complete"    count={complete}   color={getStatusColor('Complete')}    labelColor={colors.labelSecondary} />
+      <View style={[s.statsWrap, { backgroundColor: colors.surface, borderBottomColor: colors.separator }]}>
+        <View style={s.statsRow}>
+          <StatPill label="In progress" count={inProgressCount} color={IN_PROGRESS_COLOR} labelColor={colors.labelSecondary} />
+          <StatPill label="Completed(Week)" count={completedThisWeek} color={COMPLETED_THIS_WEEK_GREEN} labelColor={colors.labelSecondary} />
+          <StatPill label="Completed(Month)" count={completedThisMonth} color={COMPLETED_THIS_MONTH_YELLOW} labelColor={colors.labelSecondary} />
+        </View>
       </View>
 
-      {/* Mode tabs */}
       <View style={[s.modeRow, { backgroundColor: colors.surface, borderBottomColor: colors.separator }]}>
         {(['active', 'archived'] as ListMode[]).map((mode) => {
           const active = listMode === mode;
-          const modeColor = mode === 'active' ? colors.info : colors.labelSecondary;
+          const modeColor = mode === 'active' ? colors.info : COMPLETED_THIS_WEEK_GREEN;
           return (
             <Pressable
               key={mode}
@@ -163,59 +177,32 @@ export default function OrdersScreen() {
               style={[s.modeTab, active && [s.modeTabActive, { borderBottomColor: modeColor }]]}
             >
               <Ionicons
-                name={mode === 'active' ? 'list-outline' : 'archive-outline'}
+                name={mode === 'active' ? 'list-outline' : 'checkmark-done-outline'}
                 size={16}
                 color={active ? modeColor : colors.labelTertiary}
               />
               <Text style={[s.modeTabText, active && { color: modeColor, fontWeight: '700' }]}>
-                {mode === 'active' ? 'Active' : 'Archived'}
+                {mode === 'active' ? 'In Progress' : 'Completed'}
               </Text>
             </Pressable>
           );
         })}
       </View>
 
-      {/* Filter pills (Active) or Search (Archived) */}
-      {listMode === 'active' && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={[s.filterScroll, { backgroundColor: colors.surface }]}
-          contentContainerStyle={[s.filterContent, { borderBottomColor: colors.separator }]}
-        >
-          {FILTERS.map((f) => {
-            const active = filter === f;
-            const fColor = getStatusColor(f);
-            return (
-              <Pressable
-                key={f}
-                onPress={() => setFilter(f)}
-                style={[
-                  s.filterChip,
-                  { backgroundColor: colors.fillSecondary, borderColor: colors.separator },
-                  active && { backgroundColor: fColor + '14', borderColor: fColor },
-                ]}
-              >
-                <Text style={[s.filterText, active && { color: fColor, fontWeight: '700' }]}>{f}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
       {listMode === 'archived' && (
         <View style={[s.searchRow, { backgroundColor: colors.surface, borderBottomColor: colors.separator }]}>
           <View style={[s.searchWrap, { backgroundColor: colors.fillSecondary, borderColor: colors.separator }]}>
             <Ionicons name="search-outline" size={18} color={colors.labelTertiary} />
             <TextInput
               style={[s.searchInput, { color: colors.label }]}
-              placeholder="Search archived orders..."
+              placeholder="Search completed orders..."
               placeholderTextColor={colors.labelTertiary}
-              value={archivedSearch}
-              onChangeText={setArchivedSearch}
+              value={completedSearch}
+              onChangeText={setCompletedSearch}
               returnKeyType="search"
             />
-            {archivedSearch.length > 0 && (
-              <Pressable onPress={() => setArchivedSearch('')} hitSlop={8} style={s.clearSearch}>
+            {completedSearch.length > 0 && (
+              <Pressable onPress={() => setCompletedSearch('')} hitSlop={8} style={s.clearSearch}>
                 <Ionicons name="close-circle" size={18} color={colors.labelTertiary} />
               </Pressable>
             )}
@@ -223,41 +210,34 @@ export default function OrdersScreen() {
         </View>
       )}
 
-      {/* List */}
       {loading ? (
-        <View style={s.loadingBox}><ActivityIndicator color={colors.info} /></View>
+        <View style={s.loadingBox}><ActivityIndicator color={ORDERS_ACCENT} /></View>
       ) : displayList.length === 0 ? (
         <EmptyState
           icon={listMode === 'archived' ? 'archive-outline' : 'reader-outline'}
-          title={
-            listMode === 'archived' && archivedSearch.trim()
-              ? 'No matches'
-              : listMode === 'archived'
-                ? 'No archived orders'
-                : 'No orders yet'
-          }
-          subtitle={
-            listMode === 'archived' && archivedSearch.trim()
-              ? 'Try a different search.'
-              : listMode === 'archived'
-                ? 'Archive completed orders to see them here.'
-                : 'Tap + to add your first order.'
-          }
-          color={colors.info}
+          {...(listMode === 'archived' && completedSearch.trim()
+            ? { title: 'No matches', subtitle: 'Try a different search.' }
+            : listMode === 'archived'
+              ? { messages: EMPTY_ORDERS_ARCHIVED }
+              : { messages: EMPTY_ORDERS }
+          )}
+          showComfortLine
+          color={ORDERS_ACCENT}
         />
       ) : (
         <ScrollView style={s.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={s.list}>
-          {displayList.map((order) => (
-            <OrderCard
-              key={order.id}
-              order={order}
-              onSelect={setSelectedOrder}
-              onChangeStatus={changeStatus}
-              onDelete={remove}
-              onEdit={openEdit}
-              onArchive={archiveOrder}
-              isArchived={listMode === 'archived'}
-            />
+          {displayList.map((order, idx) => (
+            <Reanimated.View key={order.id} entering={FadeInDown.delay(idx * 50).duration(260)}>
+              <OrderCard
+                order={order}
+                onSelect={setSelectedOrder}
+                onChangeStatus={changeStatus}
+                onDelete={remove}
+                onEdit={openEdit}
+                onArchive={archiveOrder}
+                isArchived={listMode === 'archived'}
+              />
+            </Reanimated.View>
           ))}
           <View style={{ height: 110 }} />
         </ScrollView>
@@ -265,15 +245,23 @@ export default function OrdersScreen() {
 
       {/* FAB */}
       {listMode === 'active' && (
-        <Pressable onPressIn={fabPressIn} onPressOut={fabPressOut} onPress={() => setShowForm(true)} style={[s.fabWrap, { bottom: 20 }]}>
-          <Animated.View style={[s.fab, { backgroundColor: colors.info, transform: [{ scale: fabScale }] }]}>
+        <Pressable
+          onPressIn={fabPressIn}
+          onPressOut={fabPressOut}
+          onPress={() => {
+            hapticMedium();
+            setShowForm(true);
+          }}
+          style={[s.fabWrap, { bottom: 20 }]}
+        >
+          <Animated.View style={[s.fab, { backgroundColor: ORDERS_ACCENT, transform: [{ scale: fabScale }] }]}>
             <Ionicons name="add" size={28} color="#fff" />
           </Animated.View>
         </Pressable>
       )}
 
       <Sheet visible={showForm} onClose={handleClose} heightFraction={0.92}>
-        <OrderForm initial={editingOrder ?? undefined} onSave={handleSave} onCancel={handleClose} accentColor={colors.info} />
+        <OrderForm initial={editingOrder ?? undefined} onSave={handleSave} onCancel={handleClose} accentColor={ORDERS_ACCENT} />
       </Sheet>
 
       {selectedOrder ? (
@@ -305,12 +293,17 @@ const s = StyleSheet.create({
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   iconBadge: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   title: { ...typography.title3, color: colors.label },
+  headerComfort: { ...typography.caption, fontStyle: 'italic', marginTop: 2 },
+  statsWrap: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: spacing.sm,
+  },
   statsRow: {
     flexDirection: 'row',
     gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   statsBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
@@ -324,21 +317,6 @@ const s = StyleSheet.create({
   },
   modeTabActive: {},
   modeTabText: { ...typography.subhead, color: colors.labelTertiary },
-  filterScroll: { maxHeight: 48 },
-  filterContent: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    gap: spacing.sm,
-    alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  filterChip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-    borderWidth: 1.5,
-  },
-  filterText: { ...typography.subhead, color: colors.labelSecondary },
   searchRow: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,

@@ -5,11 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Order, OrderStatus } from '@/types';
 import { format, parseISO } from 'date-fns';
 import { spacing, typography, colors, radius, shadows } from '@/theme';
+import { hapticLight, hapticMedium } from '@/utils/haptics';
 
-const STATUS_CONFIG: Record<OrderStatus, { color: string; icon: string; next: string }> = {
-  Pending:     { color: '#F59E0B', icon: 'time-outline',          next: 'In Progress' },
-  'In Progress': { color: '#3B82F6', icon: 'hammer-outline',      next: 'Complete' },
-  Complete:    { color: '#22C55E', icon: 'checkmark-circle-outline', next: 'Pending' },
+const STATUS_CONFIG: Record<OrderStatus, { color: string; icon: string }> = {
+  Pending:       { color: '#F59E0B', icon: 'time-outline' },
+  'In Progress': { color: '#3B82F6', icon: 'hammer-outline' },
+  Complete:      { color: '#22C55E', icon: 'checkmark-circle-outline' },
 };
 
 interface OrderCardProps {
@@ -22,10 +23,10 @@ interface OrderCardProps {
   isArchived?: boolean;
 }
 
-export function OrderCard({ order, onSelect, onChangeStatus, onDelete, onEdit, onArchive, isArchived = false }: OrderCardProps) {
+export function OrderCard({ order, onSelect, onDelete, onEdit, onArchive, isArchived = false }: OrderCardProps) {
   const cfg = STATUS_CONFIG[order.status];
-  const nextStatus = cfg.next as OrderStatus;
   const scale = useRef(new Animated.Value(1)).current;
+  const isActiveInProgress = !order.archived && (order.status === 'In Progress' || order.status === 'Pending');
 
   const onPressIn = () => Animated.spring(scale, { toValue: 0.98, useNativeDriver: true, damping: 20, stiffness: 350 }).start();
   const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 18, stiffness: 280 }).start();
@@ -41,7 +42,10 @@ export function OrderCard({ order, onSelect, onChangeStatus, onDelete, onEdit, o
         <Pressable
           onPressIn={onPressIn}
           onPressOut={onPressOut}
-          onPress={() => onSelect?.(order)}
+          onPress={() => {
+            hapticLight();
+            onSelect?.(order);
+          }}
           style={styles.contentArea}
         >
           {/* Top row */}
@@ -96,22 +100,16 @@ export function OrderCard({ order, onSelect, onChangeStatus, onDelete, onEdit, o
 
         {/* Actions */}
         <View style={styles.actions}>
-          {!isArchived && order.status !== 'Complete' && (
+          {isActiveInProgress && onArchive && (
             <Pressable
-              style={[styles.nextBtn, { backgroundColor: cfg.color + '14', borderColor: cfg.color + '40' }]}
-              onPress={() => onChangeStatus(order.id, nextStatus)}
+              style={[styles.archiveBtn, { borderColor: '#22C55E', backgroundColor: '#22C55E14' }]}
+              onPress={() => {
+                hapticMedium();
+                onArchive(order.id);
+              }}
             >
-              <Ionicons name="arrow-forward" size={13} color={cfg.color} />
-              <Text style={[styles.nextBtnText, { color: cfg.color }]}>{nextStatus}</Text>
-            </Pressable>
-          )}
-          {!isArchived && order.status === 'Complete' && onArchive && (
-            <Pressable
-              style={[styles.archiveBtn, { borderColor: colors.labelTertiary }]}
-              onPress={() => onArchive(order.id)}
-            >
-              <Ionicons name="archive-outline" size={14} color={colors.labelSecondary} />
-              <Text style={styles.archiveBtnText}>Archive</Text>
+              <Ionicons name="checkmark-done-outline" size={14} color="#22C55E" />
+              <Text style={[styles.archiveBtnText, { color: '#22C55E', fontWeight: '700' }]}>Complete</Text>
             </Pressable>
           )}
           <View style={styles.actionRight}>

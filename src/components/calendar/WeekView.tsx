@@ -1,11 +1,14 @@
 import React, { useMemo } from 'react';
 import { View, Pressable, StyleSheet, ScrollView } from 'react-native';
+import AnimatedReanimated, { FadeInDown } from 'react-native-reanimated';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { getWeekDays, isSameDay, formatDate, formatTime } from '@/utils/date';
 import type { EventOccurrence } from '@/types';
 import { format } from 'date-fns';
 import { typography, radius, spacing } from '@/theme';
 import { useAppColors } from '@/contexts/ThemeContext';
+import { useEmptyStateMessage } from '@/hooks/useEmptyStateMessage';
+import { EMPTY_CALENDAR_WEEK } from '@/utils/emptyStateMessages';
 
 interface WeekViewProps {
   currentDate: Date;
@@ -24,6 +27,7 @@ export function WeekView({
 }: WeekViewProps) {
   const appColors = useAppColors();
   const accentColor = accentProp ?? appColors.gradientFrom;
+  const emptyMsg = useEmptyStateMessage(EMPTY_CALENDAR_WEEK);
   const days = useMemo(() => getWeekDays(currentDate), [currentDate]);
   const today = new Date();
   const key = formatDate(selectedDate);
@@ -67,22 +71,27 @@ export function WeekView({
 
       <ScrollView style={styles.eventsArea} showsVerticalScrollIndicator={false}>
         {events.length === 0 ? (
-          <Text style={[styles.noEvents, { color: appColors.labelTertiary }]}>No events today</Text>
+          <View style={styles.emptyWrap}>
+            <Text style={[styles.noEvents, { color: appColors.labelTertiary }]}>{emptyMsg.title}</Text>
+            {emptyMsg.subtitle ? <Text style={[styles.emptySub, { color: appColors.labelQuaternary }]}>{emptyMsg.subtitle}</Text> : null}
+          </View>
         ) : (
-          events.map((ev) => (
-            <View key={ev.id + ev.occurrence_date} style={[styles.eventRow, { borderLeftColor: ev.color, backgroundColor: appColors.fillSecondary }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.eventTitle, { color: appColors.label }]}>{ev.title}</Text>
-                {!ev.all_day ? (
-                  <Text style={[styles.eventTime, { color: appColors.labelSecondary }]}>
-                    {formatTime(ev.start_at)} – {formatTime(ev.end_at)}
-                  </Text>
-                ) : (
-                  <Text style={[styles.eventTime, { color: appColors.labelSecondary }]}>All day</Text>
-                )}
+          events.map((ev, idx) => (
+            <AnimatedReanimated.View key={ev.id + ev.occurrence_date} entering={FadeInDown.delay(idx * 45).duration(260)}>
+              <View style={[styles.eventRow, { borderLeftColor: ev.color, backgroundColor: appColors.fillSecondary }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.eventTitle, { color: appColors.label }]}>{ev.title}</Text>
+                  {!ev.all_day ? (
+                    <Text style={[styles.eventTime, { color: appColors.labelSecondary }]}>
+                      {formatTime(ev.start_at)} – {formatTime(ev.end_at)}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.eventTime, { color: appColors.labelSecondary }]}>All day</Text>
+                  )}
+                </View>
+                <View style={[styles.colorBar, { backgroundColor: ev.color }]} />
               </View>
-              <View style={[styles.colorBar, { backgroundColor: ev.color }]} />
-            </View>
+            </AnimatedReanimated.View>
           ))
         )}
       </ScrollView>
@@ -109,7 +118,9 @@ const styles = StyleSheet.create({
   dateNumber: { ...typography.subhead },
   todayText: { color: '#fff', fontWeight: '700' },
   eventsArea: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  noEvents: { textAlign: 'center', marginTop: 40, ...typography.body },
+  emptyWrap: { alignItems: 'center', marginTop: 40 },
+  noEvents: { textAlign: 'center', ...typography.body },
+  emptySub: { marginTop: spacing.xs, ...typography.footnote, textAlign: 'center' },
   eventRow: {
     borderLeftWidth: 4,
     paddingLeft: spacing.md,

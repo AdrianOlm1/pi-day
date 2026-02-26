@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import {
-  View, StyleSheet, ActivityIndicator, Alert, Pressable, Animated, PanResponder, LayoutAnimation, Platform, Modal,
+  View, StyleSheet, ActivityIndicator, Alert, Pressable, Animated, PanResponder, LayoutAnimation, Platform, Modal, Easing,
 } from 'react-native';
+import Reanimated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AIImportScreen } from '@/components/ai-import/AIImportScreen';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
@@ -17,8 +18,9 @@ import {
 import { useUserMode } from '@/contexts/UserModeContext';
 import { useAppColors } from '@/contexts/ThemeContext';
 import { useEvents } from '@/hooks/useEvents';
+import { useGoals } from '@/hooks/useGoals';
+import { useOrders } from '@/hooks/useOrders';
 import { useProfile } from '@/hooks/useProfile';
-import { rescheduleEventReminders } from '@/services/notifications';
 import { WeekStrip } from '@/components/calendar/WeekStrip';
 import { DayCell } from '@/components/calendar/MonthView';
 import { formatDate, isSameDay, formatMonthYear, formatTime } from '@/utils/date';
@@ -27,11 +29,13 @@ import { useCategories } from '@/hooks/useCategories';
 import { SelectedDayList } from '@/components/calendar/SelectedDayList';
 import { Sheet } from '@/components/ui/Sheet';
 import { EventForm, EventFormData } from '@/components/calendar/EventForm';
+import { OrderDetailSheet } from '@/components/orders/OrderDetailSheet';
 import { UserToggle } from '@/components/ui/UserToggle';
 import { spacing, typography, radius, shadows } from '@/theme';
+import { getComfortLineForTab } from '@/utils/greetings';
 import { playTrash } from '@/utils/sounds';
 import { USER_NAMES } from '@/utils/colors';
-import type { EventOccurrence } from '@/types';
+import type { EventOccurrence, Order } from '@/types';
 
 const YEAR_ROW_HEIGHT = 46;
 const EMPTY_EVENTS: EventOccurrence[] = [];
@@ -160,8 +164,10 @@ function EventDetailSheet({
   const { getCategoryById } = useCategories();
   const categoryName = getCategoryById(event.category_id ?? null)?.name ?? event.type;
   const userName = USER_NAMES[event.user_id];
+  const canDelete = !!onDelete && event.user_id !== 'sarah';
 
   function handleDeletePress() {
+    if (!canDelete) return;
     Alert.alert('Delete event', `Delete "${event.title}"?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => { playTrash(); onDelete(); } },
@@ -219,13 +225,15 @@ function EventDetailSheet({
           >
             <Text style={edStyles.btnTextPrimary}>Done</Text>
           </Pressable>
-          <Pressable
-            onPress={handleDeletePress}
-            style={[edStyles.btn, edStyles.btnDanger]}
-          >
-            <Ionicons name="trash-outline" size={18} color="#EF4444" />
-            <Text style={edStyles.btnTextDanger}>Delete</Text>
-          </Pressable>
+          {canDelete ? (
+            <Pressable
+              onPress={handleDeletePress}
+              style={[edStyles.btn, edStyles.btnDanger]}
+            >
+              <Ionicons name="trash-outline" size={18} color="#EF4444" />
+              <Text style={edStyles.btnTextDanger}>Delete</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </View>
@@ -292,7 +300,14 @@ export default function CalendarScreen() {
   const { profile } = useProfile(userId);
   const appColors = useAppColors();
   const insets = useSafeAreaInsets();
-  const { loading, error, refresh, getOccurrencesByRange, createEvent, createEventWithRecurrence, deleteEvent } = useEvents();
+  const { loading, error, refresh, getOccurrencesByRange, createEvent, createEventWithRecurrence, deleteEvent, updateEvent } = useEvents();
+  const {
+    goalsForCalendarDate,
+    isCheckedInForDate,
+    checkIn,
+    uncheck,
+  } = useGoals(userId as import('@/types').UserId);
+  const { orders, changeStatus, remove: removeOrder, archiveOrder } = useOrders();
 
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -300,7 +315,15 @@ export default function CalendarScreen() {
   const [displayedMonth, setDisplayedMonth] = useState(new Date());
   const [showForm, setShowForm] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<EventOccurrence | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [dayEditMode, setDayEditMode] = useState(false);
+  /** Pending event time changes (key = id-occurrence_date); flushed when Done is pressed. */
+  const [pendingEventTimes, setPendingEventTimes] = useState<Record<string, { start_at: string; end_at: string; eventId: string }>>({});
+  /** Optimistic: hide these occurrence keys (id-occurrence_date) until refetch updates the list. */
+  const [deletedEventKeys, setDeletedEventKeys] = useState<Set<string>>(new Set());
+  /** Skip month enter animation when switching from week to month (only animate when changing month within month view). */
+  const skipNextMonthAnimationRef = useRef(false);
 
   const displayedMonthRef = useRef(displayedMonth);
   displayedMonthRef.current = displayedMonth;
@@ -309,6 +332,10 @@ export default function CalendarScreen() {
   const [calendarCollapsed, setCalendarCollapsed] = useState(false);
   const collapseAnim = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
+  const contentFade = useRef(new Animated.Value(1)).current;
+  const contentFadeFirstRun = useRef(true);
+  const segmentPosition = useRef(new Animated.Value(viewMode === 'month' ? 1 : 0)).current;
+  const [segmentedWidth, setSegmentedWidth] = useState(200);
 
   const handleContentScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number } } }) => {
     const y = e.nativeEvent.contentOffset.y;
@@ -327,15 +354,54 @@ export default function CalendarScreen() {
     Animated.timing(collapseAnim, { toValue: 0, duration: 0, useNativeDriver: false }).start();
   }, [viewMode]);
 
+  // After first render in month view, allow month-change animation for next time
+  useEffect(() => {
+    if (viewMode === 'month') {
+      const id = requestAnimationFrame(() => {
+        skipNextMonthAnimationRef.current = false;
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [viewMode]);
+
   const fabPressIn = () => Animated.spring(fabScale, { toValue: 0.90, useNativeDriver: true, damping: 20, stiffness: 400 }).start();
   const fabPressOut = () => Animated.spring(fabScale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 280 }).start();
 
   useFocusEffect(
     useCallback(() => {
-      refresh();
-      rescheduleEventReminders(profile?.notification_category_ids ?? []).catch(() => {});
-    }, [profile?.notification_category_ids]),
+      return () => {
+        setDayEditMode(false);
+        setPendingEventTimes({});
+      };
+    }, []),
   );
+
+  useEffect(() => {
+    setDayEditMode(false);
+    setPendingEventTimes({});
+    setDeletedEventKeys(new Set());
+  }, [selectedDate]);
+
+  // Clear optimistic delete keys once refetched data no longer contains those events
+  useEffect(() => {
+    if (deletedEventKeys.size === 0) return;
+    setDeletedEventKeys((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const key of prev) {
+        // key is "id-occurrence_date" and occurrence_date is yyyy-MM-dd (10 chars)
+        if (key.length < 12) continue;
+        const dateKey = key.slice(-10);
+        const id = key.slice(0, -11);
+        const list = occurrencesByDate[dateKey] ?? [];
+        if (!list.some((ev) => ev.id === id)) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [occurrencesByDate]);
 
   const currentMonthWeeks = useMemo(() => getWeeksForMonth(currentDate), [currentDate]);
   const monthBlockHeight = currentMonthWeeks.length * YEAR_ROW_HEIGHT;
@@ -344,36 +410,91 @@ export default function CalendarScreen() {
     setDisplayedMonth(currentDate);
   }, [currentDate]);
 
+  // Fade content only when switching between week and month (not when changing days)
+  useEffect(() => {
+    if (contentFadeFirstRun.current) {
+      contentFadeFirstRun.current = false;
+      return;
+    }
+    contentFade.setValue(0);
+    Animated.timing(contentFade, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [viewMode]);
+
+  // Animate the segment pill when switching week/month
+  useEffect(() => {
+    Animated.timing(segmentPosition, {
+      toValue: viewMode === 'month' ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [viewMode, segmentPosition]);
+
   const runMonthTransition = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }, []);
 
-  const monthSwipeResponder = useMemo(
+  const monthGridSwipeResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 20,
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, g) => {
+          const dx = Math.abs(g.dx);
+          const dy = Math.abs(g.dy);
+          return (dx > 28 && dx > dy) || (dy > 28 && dy > dx);
+        },
+        onPanResponderTerminationRequest: () => true,
         onPanResponderRelease: (_, gestureState) => {
-          const { dy } = gestureState;
-          if (dy < -40) {
+          const { dx, dy } = gestureState;
+          const adx = Math.abs(dx);
+          const ady = Math.abs(dy);
+          if (adx > ady && adx > 40) {
+            if (dx < 0) setSelectedDate(addDays(selectedDate, 1));
+            else setSelectedDate(subDays(selectedDate, 1));
+          } else if (ady > 40) {
             runMonthTransition();
-            const next = addMonths(currentDate, 1);
-            setCurrentDate(next);
-            setSelectedDate(startOfMonth(next));
-            setDisplayedMonth(next);
-          } else if (dy > 40) {
-            runMonthTransition();
-            const prev = subMonths(currentDate, 1);
-            setCurrentDate(prev);
-            setSelectedDate(startOfMonth(prev));
-            setDisplayedMonth(prev);
+            if (dy < 0) {
+              const next = addMonths(currentDate, 1);
+              setCurrentDate(next);
+              setSelectedDate(startOfMonth(next));
+              setDisplayedMonth(next);
+            } else {
+              const prev = subMonths(currentDate, 1);
+              setCurrentDate(prev);
+              setSelectedDate(startOfMonth(prev));
+              setDisplayedMonth(prev);
+            }
           }
         },
       }),
-    [currentDate, runMonthTransition]
+    [currentDate, selectedDate, runMonthTransition]
   );
 
   const weekSwipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, g) => {
+          const dx = Math.abs(g.dx);
+          const dy = Math.abs(g.dy);
+          return dx > dy && dx > 28;
+        },
+        onPanResponderTerminationRequest: () => true,
+        onPanResponderRelease: (_, gestureState) => {
+          const { dx } = gestureState;
+          if (dx < -40) setSelectedDate(addDays(selectedDate, 1));
+          else if (dx > 40) setSelectedDate(subDays(selectedDate, 1));
+        },
+      }),
+    [selectedDate]
+  );
+
+  const monthDaySwipeResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
@@ -410,12 +531,104 @@ export default function CalendarScreen() {
     [getOccurrencesByRange, rangeStart, rangeEnd]
   );
 
+  function eventTimeKey(ev: EventOccurrence): string {
+    return `${ev.id}-${ev.occurrence_date}`;
+  }
+
+  const displayOccurrencesByDate = useMemo(() => {
+    const filterDeleted = (list: EventOccurrence[]) =>
+      list.filter((ev) => !deletedEventKeys.has(eventTimeKey(ev)));
+    let base = occurrencesByDate;
+    if (deletedEventKeys.size > 0) {
+      const filtered: Record<string, EventOccurrence[]> = {};
+      for (const dateKey of Object.keys(occurrencesByDate)) {
+        filtered[dateKey] = filterDeleted(occurrencesByDate[dateKey]);
+      }
+      base = filtered;
+    }
+    if (Object.keys(pendingEventTimes).length === 0) return base;
+    const out: Record<string, EventOccurrence[]> = {};
+    for (const dateKey of Object.keys(base)) {
+      out[dateKey] = base[dateKey].map((ev) => {
+        const pending = pendingEventTimes[eventTimeKey(ev)];
+        if (pending)
+          return { ...ev, start_at: pending.start_at, end_at: pending.end_at };
+        return ev;
+      });
+    }
+    return out;
+  }, [occurrencesByDate, pendingEventTimes, deletedEventKeys]);
+
+  const handlePendingEventTimeChange = useCallback(
+    (ev: EventOccurrence, newStartAt: string, newEndAt: string) => {
+      setPendingEventTimes((prev) => ({
+        ...prev,
+        [eventTimeKey(ev)]: { start_at: newStartAt, end_at: newEndAt, eventId: ev.id },
+      }));
+    },
+    []
+  );
+
+  const handleEditModeChange = useCallback(
+    (value: boolean) => {
+      if (value === false) {
+        setDayEditMode(false);
+        const pending = Object.entries(pendingEventTimes);
+        if (pending.length > 0) {
+          (async () => {
+            for (const [, { start_at, end_at, eventId }] of pending) {
+              await updateEvent(eventId, { start_at, end_at });
+            }
+          })();
+        }
+      } else {
+        setDayEditMode(value);
+      }
+    },
+    [pendingEventTimes, updateEvent]
+  );
+
+  const handleDeleteEventFromDay = useCallback(
+    async (ev: EventOccurrence) => {
+      const key = eventTimeKey(ev);
+      setDeletedEventKeys((prev) => new Set(prev).add(key));
+      setPendingEventTimes((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      try {
+        playTrash();
+        await deleteEvent(ev.id);
+      } catch (e: any) {
+        setDeletedEventKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+        Alert.alert('Error', e.message ?? 'Failed to delete event');
+      }
+    },
+    [deleteEvent]
+  );
+
+  const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+  const goalsForSelectedDate = useMemo(
+    () => goalsForCalendarDate(selectedDateStr),
+    [goalsForCalendarDate, selectedDateStr]
+  );
+  const ordersForSelectedDate = useMemo(
+    () => orders.filter((o) => o.due_date === selectedDateStr && !o.archived),
+    [orders, selectedDateStr]
+  );
+
   function navigatePrev() {
     if (viewMode === 'month') {
       runMonthTransition();
-      const next = subMonths(currentDate, 1);
-      setCurrentDate(next);
-      setSelectedDate(startOfMonth(next));
+      const prev = subMonths(currentDate, 1);
+      setCurrentDate(prev);
+      setSelectedDate(startOfMonth(prev));
     } else setSelectedDate(subDays(selectedDate, 1));
   }
   function navigateNext() {
@@ -455,6 +668,7 @@ export default function CalendarScreen() {
       } else {
         await createEvent({ ...payload, recurrence_id: null });
       }
+      await refresh();
       setShowForm(false);
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'Failed to save event');
@@ -469,6 +683,7 @@ export default function CalendarScreen() {
       Alert.alert('Error', e.message ?? 'Failed to delete event');
     }
   }
+
 
   const navLabel = viewMode === 'month'
     ? formatMonthYear(displayedMonth)
@@ -489,6 +704,7 @@ export default function CalendarScreen() {
                 {format(new Date(), 'EEE, MMM d')} · tap to jump
               </Text>
             </Pressable>
+            <Text style={[s.headerComfort, { color: appColors.labelTertiary }]}>{getComfortLineForTab('calendar', new Date().toISOString().slice(0, 10))}</Text>
           </View>
         </View>
         <View style={s.headerRight}>
@@ -506,8 +722,28 @@ export default function CalendarScreen() {
       <View style={[s.contentWrap, { backgroundColor: appColors.background }]}>
       {/* View mode toggle + nav */}
       <View style={[s.controlBar, { backgroundColor: appColors.surface, borderBottomColor: appColors.separator }]}>
-        {/* Segmented control */}
-        <View style={[s.segmented, { backgroundColor: appColors.fillSecondary }]}>
+        {/* Segmented control — sliding pill for active segment */}
+        <View
+          style={[s.segmented, { backgroundColor: appColors.fillSecondary }]}
+          onLayout={(e) => setSegmentedWidth(e.nativeEvent.layout.width)}
+        >
+          <Animated.View
+            style={[
+              s.segmentedPill,
+              {
+                backgroundColor: userColor,
+                width: (segmentedWidth - 6) / 2,
+                transform: [
+                  {
+                    translateX: segmentPosition.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [2, 2 + (segmentedWidth - 6) / 2 + 2],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          />
           {(['week', 'month'] as ViewMode[]).map((mode) => {
             const active = viewMode === mode;
             return (
@@ -521,7 +757,7 @@ export default function CalendarScreen() {
                   }
                   setViewMode(mode);
                 }}
-                style={[s.segBtn, active && [s.segBtnActive, { backgroundColor: userColor }]]}
+                style={[s.segBtn, active && s.segBtnActiveText]}
               >
                 <Ionicons
                   name={mode === 'week' ? 'today-outline' : 'calendar-outline'}
@@ -565,11 +801,11 @@ export default function CalendarScreen() {
         </View>
       ) : null}
 
-      {/* Content */}
-      {loading ? (
+      {/* Content — same fade transition as tab switch when changing view or day */}
+      {loading && !dayEditMode && Object.keys(pendingEventTimes).length === 0 ? (
         <View style={s.loadingBox}><ActivityIndicator size="large" color={userColor} /></View>
       ) : (
-        <View style={s.content}>
+        <Animated.View style={[s.content, { opacity: contentFade }]}>
           {viewMode === 'week' && (
             <View style={s.weekViewWrap} {...weekSwipeResponder.panHandlers}>
               <Animated.View style={[s.collapsibleWrap, { maxHeight: collapseAnim.interpolate({ inputRange: [0, 1], outputRange: [WEEK_STRIP_HEIGHT, 0] }) }]}>
@@ -580,25 +816,35 @@ export default function CalendarScreen() {
                   accentColor={userColor}
                 />
               </Animated.View>
-              <DayView
-                selectedDate={selectedDate}
-                occurrencesByDate={occurrencesByDate}
-                accentColor={userColor}
-                onEventPress={(ev) => setSelectedEvent(ev)}
-                onScroll={handleContentScroll}
-                onRequestExpandStrip={
-                  calendarCollapsed
-                    ? () => {
-                        setCalendarCollapsed(false);
-                        Animated.timing(collapseAnim, { toValue: 0, duration: 220, useNativeDriver: false }).start();
-                      }
-                    : undefined
-                }
-              />
+                <DayView
+                  selectedDate={selectedDate}
+                  occurrencesByDate={displayOccurrencesByDate}
+                  goals={goalsForSelectedDate}
+                  orders={ordersForSelectedDate}
+                  accentColor={userColor}
+                  onEventPress={(ev) => setSelectedEvent(ev)}
+                  onScroll={handleContentScroll}
+                  onRequestExpandStrip={
+                    calendarCollapsed
+                      ? () => {
+                          setCalendarCollapsed(false);
+                          Animated.timing(collapseAnim, { toValue: 0, duration: 220, useNativeDriver: false }).start();
+                        }
+                      : undefined
+                  }
+                  isCheckedInForDate={isCheckedInForDate}
+                  onCheckIn={checkIn}
+                  onUncheck={uncheck}
+                  onOrderPress={(order) => setSelectedOrder(order)}
+                  editMode={dayEditMode}
+                  onEditModeChange={handleEditModeChange}
+                  onUpdateEventTime={handlePendingEventTimeChange}
+                  onDeleteEvent={handleDeleteEventFromDay}
+                />
             </View>
           )}
           {viewMode === 'month' && (
-            <>
+            <View style={s.monthViewWrap} {...monthDaySwipeResponder.panHandlers}>
               <Animated.View style={[s.collapsibleWrap, { maxHeight: collapseAnim.interpolate({ inputRange: [0, 1], outputRange: [WEEKDAY_ROW_HEIGHT + monthBlockHeight, 0] }) }]}>
                 <View style={[s.weekdayRow, { backgroundColor: appColors.surface, borderBottomColor: appColors.separator }]}>
                   {(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const).map((d, i) => (
@@ -607,32 +853,44 @@ export default function CalendarScreen() {
                 </View>
                 <View
                   style={[s.monthPageWrap, { height: monthBlockHeight }]}
-                  {...monthSwipeResponder.panHandlers}
+                  {...monthGridSwipeResponder.panHandlers}
                 >
-                  <MonthBlock
-                    weeks={currentMonthWeeks}
-                    borderColor={appColors.separator}
-                    selectedDate={selectedDate}
-                    yearStart={startOfMonth(currentDate)}
-                    yearEnd={endOfMonth(currentDate)}
-                    occurrencesByDate={occurrencesByDate}
-                    accentColor={userColor}
-                    onSelectDate={setSelectedDate}
-                    today={today}
-                    appColors={appColors}
-                  />
+                  <Reanimated.View
+                    key={format(currentDate, 'yyyy-MM')}
+                    style={[s.monthPageWrap, { height: monthBlockHeight }]}
+                    entering={skipNextMonthAnimationRef.current ? undefined : FadeIn.duration(260)}
+                  >
+                    <MonthBlock
+                      weeks={currentMonthWeeks}
+                      borderColor={appColors.separator}
+                      selectedDate={selectedDate}
+                      yearStart={startOfMonth(currentDate)}
+                      yearEnd={endOfMonth(currentDate)}
+                      occurrencesByDate={occurrencesByDate}
+                      accentColor={userColor}
+                      onSelectDate={setSelectedDate}
+                      today={today}
+                      appColors={appColors}
+                    />
+                  </Reanimated.View>
                 </View>
               </Animated.View>
               <SelectedDayList
                 selectedDate={selectedDate}
                 events={occurrencesByDate[formatDate(selectedDate)] ?? []}
+                goals={goalsForSelectedDate}
+                orders={ordersForSelectedDate}
                 accentColor={userColor}
                 onEventPress={(ev) => setSelectedEvent(ev)}
                 onScroll={handleContentScroll}
+                isCheckedInForDate={isCheckedInForDate}
+                onCheckIn={checkIn}
+                onUncheck={uncheck}
+                onOrderPress={(order) => setSelectedOrder(order)}
               />
-            </>
+            </View>
           )}
-        </View>
+        </Animated.View>
       )}
 
       {/* FAB */}
@@ -647,7 +905,7 @@ export default function CalendarScreen() {
         </Animated.View>
       </Pressable>
 
-      <Sheet visible={showForm} onClose={() => setShowForm(false)} heightFraction={0.92}>
+      <Sheet visible={showForm} onClose={() => setShowForm(false)} heightFraction={0.92} scrollable={false}>
         <EventForm initialDate={selectedDate} onSave={handleSaveEvent} onCancel={() => setShowForm(false)} />
       </Sheet>
 
@@ -664,6 +922,19 @@ export default function CalendarScreen() {
           />
         ) : null}
       </Sheet>
+
+      {selectedOrder ? (
+        <OrderDetailSheet
+          order={orders.find((o) => o.id === selectedOrder.id) ?? selectedOrder}
+          visible={!!selectedOrder}
+          onClose={() => setSelectedOrder(null)}
+          onEdit={() => setSelectedOrder(null)}
+          onDelete={(id) => { removeOrder(id); setSelectedOrder(null); }}
+          onChangeStatus={changeStatus}
+          onArchive={(id) => { archiveOrder(id); setSelectedOrder(null); }}
+          isArchived={false}
+        />
+      ) : null}
 
       {/* AI Import — full-screen modal */}
       <Modal
@@ -693,6 +964,7 @@ const s = StyleSheet.create({
   iconBadge: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   title: { ...typography.title3 },
   todayLink: { fontSize: 12, fontWeight: '500', marginTop: 2 },
+  headerComfort: { ...typography.caption, fontStyle: 'italic', marginTop: 2 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   importBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
 
@@ -704,14 +976,28 @@ const s = StyleSheet.create({
   },
   segmented: {
     flexDirection: 'row',
-    borderRadius: radius.sm, padding: 2, gap: 2,
+    borderRadius: radius.sm,
+    padding: 2,
+    gap: 2,
+    position: 'relative',
   },
-  segBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.xxs,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.xs,
+  segmentedPill: {
+    position: 'absolute',
+    left: 0,
+    top: 2,
+    bottom: 2,
     borderRadius: radius.xs,
   },
-  segBtnActive: {},
+  segBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xxs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.xs,
+  },
+  segBtnActiveText: {},
   segBtnText: { fontSize: 13, fontWeight: '600' },
   segBtnTextActive: { color: '#fff' },
   navGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1, justifyContent: 'flex-end' },
@@ -725,9 +1011,10 @@ const s = StyleSheet.create({
   },
   errorText: { flex: 1, color: '#92400E', fontSize: 13 },
   loadingBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  content: { flex: 1 },
+  content: { flex: 1, minHeight: 200 },
   collapsibleWrap: { overflow: 'hidden' as const },
-  weekViewWrap: { flex: 1 },
+  weekViewWrap: { flex: 1, minHeight: 240 },
+  monthViewWrap: { flex: 1 },
   weekdayRow: {
     flexDirection: 'row',
     paddingHorizontal: spacing.xs,

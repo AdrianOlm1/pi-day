@@ -11,6 +11,7 @@ import {
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { radius, spacing, typography } from '@/theme';
 import { useAppColors } from '@/contexts/ThemeContext';
+import { hapticLight, hapticMedium } from '@/utils/haptics';
 
 interface ButtonProps {
   title: string;
@@ -83,9 +84,16 @@ export function Button({
     ...(textStyle as TextStyle),
   };
 
+  const handlePress = () => {
+    if (isDisabled) return;
+    if (variant === 'filled') hapticMedium();
+    else hapticLight();
+    onPress();
+  };
+
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       disabled={isDisabled}
       onPressIn={onPressIn}
       onPressOut={onPressOut}

@@ -86,13 +86,13 @@ export default function PairingScreen() {
   // ── Home screen ─────────────────────────────────────────────────────────────
   if (screen === 'home') {
     return (
-      <SafeAreaView style={s.safe}>
+      <SafeAreaView style={[s.safe, { backgroundColor: appColors.background }]}>
         <ScrollView contentContainerStyle={s.center} showsVerticalScrollIndicator={false}>
           <View style={[s.logo, { backgroundColor: accent + '18' }]}>
             <Text style={s.logoEmoji}>π</Text>
           </View>
-          <Text style={s.heading}>Welcome to Sarian</Text>
-          <Text style={s.sub}>
+          <Text style={[s.heading, { color: appColors.label }]}>Welcome to Sarian</Text>
+          <Text style={[s.sub, { color: appColors.labelSecondary }]}>
             This app is shared between two people.{'\n'}
             Set up your connection to get started.
           </Text>
@@ -129,13 +129,13 @@ export default function PairingScreen() {
   // ── Create screen — show the generated code ─────────────────────────────────
   if (screen === 'create') {
     return (
-      <SafeAreaView style={s.safe}>
+      <SafeAreaView style={[s.safe, { backgroundColor: appColors.background }]}>
         <ScrollView contentContainerStyle={s.center} showsVerticalScrollIndicator={false}>
-          <View style={[s.logo, { backgroundColor: '#22C55E18' }]}>
-            <Ionicons name="checkmark-circle" size={48} color="#22C55E" />
+          <View style={[s.logo, { backgroundColor: hexToRgba(appColors.success, 0.12) }]}>
+            <Ionicons name="checkmark-circle" size={48} color={appColors.success} />
           </View>
-          <Text style={s.heading}>You're set up!</Text>
-          <Text style={s.sub}>
+          <Text style={[s.heading, { color: appColors.label }]}>You're set up!</Text>
+          <Text style={[s.sub, { color: appColors.labelSecondary }]}>
             Give this code to your partner.{'\n'}
             They'll enter it on their device.
           </Text>
@@ -168,7 +168,7 @@ export default function PairingScreen() {
   // ── Join screen ─────────────────────────────────────────────────────────────
   if (screen === 'join') {
     return (
-      <SafeAreaView style={s.safe}>
+      <SafeAreaView style={[s.safe, { backgroundColor: appColors.background }]}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={s.center} keyboardShouldPersistTaps="handled">
             <Pressable onPress={() => setScreen('home')} style={s.backBtn}>
@@ -179,18 +179,18 @@ export default function PairingScreen() {
             <View style={[s.logo, { backgroundColor: accent + '18' }]}>
               <Ionicons name="enter-outline" size={40} color={accent} />
             </View>
-            <Text style={s.heading}>Enter pair code</Text>
-            <Text style={s.sub}>
+            <Text style={[s.heading, { color: appColors.label }]}>Enter pair code</Text>
+            <Text style={[s.sub, { color: appColors.labelSecondary }]}>
               Ask your partner for their 5-character code.
             </Text>
 
             <TextInput
               ref={inputRef}
-              style={[s.codeInput, { borderColor: input.length > 0 ? accent : colors.separator, color: colors.label }]}
+              style={[s.codeInput, { borderColor: input.length > 0 ? accent : appColors.separator, color: appColors.label }]}
               value={input}
               onChangeText={t => setInput(t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5))}
               placeholder="A3F9K"
-              placeholderTextColor={colors.labelTertiary}
+              placeholderTextColor={appColors.labelTertiary}
               autoCapitalize="characters"
               autoCorrect={false}
               maxLength={5}
@@ -221,7 +221,7 @@ export default function PairingScreen() {
 
   // ── Claim screen (new phone) ─────────────────────────────────────────────────
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={[s.safe, { backgroundColor: appColors.background }]}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={s.center} keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => setScreen('home')} style={s.backBtn}>
@@ -229,11 +229,11 @@ export default function PairingScreen() {
             <Text style={s.backText}>Back</Text>
           </Pressable>
 
-          <View style={[s.logo, { backgroundColor: '#F59E0B18' }]}>
-            <Ionicons name="phone-portrait-outline" size={40} color="#F59E0B" />
+          <View style={[s.logo, { backgroundColor: hexToRgba(appColors.warning, 0.12) }]}>
+            <Ionicons name="phone-portrait-outline" size={40} color={appColors.warning} />
           </View>
-          <Text style={s.heading}>New phone setup</Text>
-          <Text style={s.sub}>
+          <Text style={[s.heading, { color: appColors.label }]}>New phone setup</Text>
+          <Text style={[s.sub, { color: appColors.labelSecondary }]}>
             On your old device, go to{'\n'}
             <Text style={{ fontWeight: '700' }}>Settings → Replace this device</Text>
             {'\n'}to get a 6-character claim code.
@@ -241,11 +241,11 @@ export default function PairingScreen() {
 
           <TextInput
             ref={inputRef}
-            style={[s.codeInput, { borderColor: input.length > 0 ? '#F59E0B' : colors.separator, color: colors.label }]}
+            style={[s.codeInput, { borderColor: input.length > 0 ? appColors.warning : appColors.separator, color: appColors.label }]}
             value={input}
             onChangeText={t => setInput(t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
             placeholder="X7B2KP"
-            placeholderTextColor={colors.labelTertiary}
+            placeholderTextColor={appColors.labelTertiary}
             autoCapitalize="characters"
             autoCorrect={false}
             maxLength={6}
@@ -258,7 +258,7 @@ export default function PairingScreen() {
           <Pressable
             onPress={handleClaim}
             disabled={input.trim().length < 6 || loading}
-            style={[s.primaryBtn, { backgroundColor: '#F59E0B', opacity: input.trim().length < 6 ? 0.4 : 1 }]}
+            style={[s.primaryBtn, { backgroundColor: appColors.warning, opacity: input.trim().length < 6 ? 0.4 : 1 }]}
           >
             {loading
               ? <ActivityIndicator color="#fff" />
@@ -274,11 +274,20 @@ export default function PairingScreen() {
   );
 }
 
+function hexToRgba(hex: string, a: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16) || 0;
+  const g = parseInt(h.slice(2, 4), 16) || 0;
+  const b = parseInt(h.slice(4, 6), 16) || 0;
+  return `rgba(${r},${g},${b},${a})`;
+}
+
 function ErrorBox({ message }: { message: string }) {
+  const appColors = useAppColors();
   return (
-    <View style={s.errorBox}>
-      <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
-      <Text style={s.errorText}>{message}</Text>
+    <View style={[s.errorBox, { backgroundColor: hexToRgba(appColors.destructive, 0.08) }]}>
+      <Ionicons name="alert-circle-outline" size={16} color={appColors.destructive} />
+      <Text style={[s.errorText, { color: appColors.destructive }]}>{message}</Text>
     </View>
   );
 }
@@ -343,8 +352,8 @@ const s = StyleSheet.create({
 
   errorBox: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    backgroundColor: '#EF444412', borderRadius: radius.sm,
+    borderRadius: radius.sm,
     padding: spacing.sm, width: '100%',
   },
-  errorText: { flex: 1, fontSize: 13, color: '#EF4444' },
+  errorText: { flex: 1, fontSize: 13 },
 });

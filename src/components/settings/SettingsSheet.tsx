@@ -1,15 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  View, StyleSheet, ScrollView, Modal, Pressable,
-  Animated, Platform, Easing, ActivityIndicator, Alert,
+  View, StyleSheet, ScrollView, Pressable,
+  Platform, ActivityIndicator, Alert, LayoutAnimation,
+  Animated, useWindowDimensions,
 } from 'react-native';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { spacing, typography, radius, shadows } from '@/theme';
-import { useTheme, useAppColors, type FontSizeScale } from '@/contexts/ThemeContext';
+import { hapticLight } from '@/utils/haptics';
+import { spacing, typography, radius, shadows, animation } from '@/theme';
+import { useTheme, useAppColors } from '@/contexts/ThemeContext';
 import { useUserMode } from '@/contexts/UserModeContext';
 import { usePairing } from '@/contexts/PairingContext';
 import { useProfile } from '@/hooks/useProfile';
@@ -21,8 +23,8 @@ import { CategoriesSection, CategoryNotificationToggles } from './CategoriesSect
 import { AutoDeleteSection } from './AutoDeleteSection';
 import { ACBackgroundStatic } from '@/components/ui/ACBackground';
 import { GlassCard } from '@/components/ui/GlassCard';
+import { Sheet } from '@/components/ui/Sheet';
 import type { UserId } from '@/types';
-import type { ACThemeId } from '@/constants/acThemes';
 import { TextInput as RNTextInput } from 'react-native';
 
 // ─── hex → rgba helper ────────────────────────────────────────────────────────
@@ -32,48 +34,6 @@ function hexToRgba(hex: string, a: number): string {
   const g = parseInt(h.slice(2, 4), 16) || 0;
   const b = parseInt(h.slice(4, 6), 16) || 0;
   return `rgba(${r},${g},${b},${a})`;
-}
-
-// ─── Floating leaf decoration ─────────────────────────────────────────────────
-function FloatingLeaf({ emoji, x, delay }: { emoji: string; x: number; delay: number }) {
-  const transY  = useRef(new Animated.Value(0)).current;
-  const rot     = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.parallel([
-        Animated.sequence([
-          Animated.timing(transY, { toValue: -8, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(transY, { toValue: 0,  duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        ]),
-        Animated.sequence([
-          Animated.timing(rot, { toValue: 1,  duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(rot, { toValue: -1, duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(rot, { toValue: 0,  duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        ]),
-      ])
-    );
-    const timer = setTimeout(() => loop.start(), delay);
-    return () => { clearTimeout(timer); loop.stop(); };
-  }, []);
-
-  const rotate = rot.interpolate({ inputRange: [-1, 1], outputRange: ['-12deg', '12deg'] });
-
-  return (
-    <Animated.Text
-      style={{
-        position: 'absolute',
-        left: x,
-        top: 12,
-        fontSize: 22,
-        opacity: 0.45,
-        transform: [{ translateY: transY }, { rotate }],
-      }}
-      pointerEvents="none"
-    >
-      {emoji}
-    </Animated.Text>
-  );
 }
 
 // ─── Name Input ────────────────────────────────────────────────────────────────
@@ -110,20 +70,22 @@ const ni = StyleSheet.create({
 interface ColorRowProps { userId: UserId; label: string; isLast?: boolean; }
 function ColorRow({ userId, label, isLast }: ColorRowProps) {
   const appColors = useAppColors();
-  const { getUserColor, setUserColor, getUserName, activeTheme } = useTheme();
+  const { getUserColor, setUserColor, getUserName } = useTheme();
   const [expanded, setExpanded] = useState(false);
-  const heightAnim = useRef(new Animated.Value(0)).current;
   const color = getUserColor(userId);
-  useEffect(() => {
-    Animated.spring(heightAnim, { toValue: expanded ? 1 : 0, useNativeDriver: false, damping: 20, stiffness: 180 }).start();
-  }, [expanded]);
-  const maxH = heightAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 420] });
+
+  function toggleExpanded() {
+    LayoutAnimation.configureNext(
+      LayoutAnimation.create(260, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity)
+    );
+    hapticLight();
+    setExpanded(e => !e);
+  }
 
   return (
     <View>
-      <Pressable onPress={() => setExpanded(e => !e)}>
+      <Pressable onPress={toggleExpanded} style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}>
         <View style={cr.row}>
-          {/* Avatar circle with gradient */}
           <View style={cr.avatarWrap}>
             <LinearGradient
               colors={[color, hexToRgba(color, 0.7)]}
@@ -138,20 +100,19 @@ function ColorRow({ userId, label, isLast }: ColorRowProps) {
               {expanded ? 'Choose a color below' : 'Tap to customize'}
             </Text>
           </View>
-          {/* Swatch preview pill */}
           <View style={[cr.swatchPill, { backgroundColor: color }]} />
-          <Animated.View style={{
-            transform: [{ rotate: heightAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }]
-          }}>
+          <View style={{ transform: [{ rotate: expanded ? '180deg' : '0deg' }] }}>
             <Ionicons name="chevron-down" size={16} color={appColors.labelTertiary} />
-          </Animated.View>
+          </View>
         </View>
       </Pressable>
 
-      <Animated.View style={{ maxHeight: maxH, overflow: 'hidden' }}>
-        <UserColorPicker userId={userId} selectedColor={color} onSelectColor={hex => setUserColor(userId, hex)} />
-        <NameInput userId={userId} currentName={getUserName(userId)} />
-      </Animated.View>
+      {expanded && (
+        <View>
+          <UserColorPicker userId={userId} selectedColor={color} onSelectColor={hex => setUserColor(userId, hex)} />
+          <NameInput userId={userId} currentName={getUserName(userId)} />
+        </View>
+      )}
 
       {!isLast && <View style={[cr.sep, { backgroundColor: appColors.separator }]} />}
     </View>
@@ -184,16 +145,22 @@ function NotificationRow() {
 
   return (
     <View>
-      <Pressable onPress={() => setShow(s => !s)} style={nr.row}>
+      <Pressable
+        onPress={() => {
+          hapticLight();
+          setShow(s => !s);
+        }}
+        style={({ pressed }) => [nr.row, { opacity: pressed ? 0.85 : 1 }]}
+      >
         <View style={[nr.iconBadge, { backgroundColor: hexToRgba(appColors.gradientFrom, 0.12) }]}><Ionicons name="notifications-outline" size={20} color={appColors.labelSecondary} /></View>
         <View style={{ flex: 1 }}>
           <Text style={[nr.label, { color: appColors.label }]}>Daily Reminder</Text>
           <Text style={[nr.sub, { color: appColors.labelTertiary }]}>Goals & to-dos</Text>
         </View>
         <Text style={[nr.time, { color: appColors.labelSecondary }]}>{displayTime}</Text>
-        <Animated.View>
-          <Ionicons name={show ? 'chevron-up' : 'chevron-down'} size={16} color={appColors.labelTertiary} />
-        </Animated.View>
+        <View style={{ transform: [{ rotate: show ? '180deg' : '0deg' }] }}>
+          <Ionicons name="chevron-down" size={16} color={appColors.labelTertiary} />
+        </View>
       </Pressable>
       {show && (
         <DateTimePicker
@@ -220,18 +187,31 @@ const nr = StyleSheet.create({
   time:  { ...typography.bodyEmphasis },
 });
 
-// ─── Main SettingsSheet ───────────────────────────────────────────────────────
-interface SettingsSheetProps { visible: boolean; onClose: () => void; }
+// ─── Settings screen content (shared by modal and tab) ─────────────────────────
+export interface SettingsScreenContentProps {
+  /** Show close button in header (e.g. when used in modal) */
+  showCloseButton?: boolean;
+  onClose?: () => void;
+  /** Top padding for header (modal may use larger inset) */
+  headerTopPadding?: number;
+}
 
-export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
+export function SettingsScreenContent({
+  showCloseButton = false,
+  onClose,
+  headerTopPadding = spacing.md,
+}: SettingsScreenContentProps) {
   const appColors = useAppColors();
-  const insets = useSafeAreaInsets();
   const { activeTheme, setThemeId, fontSizeScale, setFontSizeScale, getUserName } = useTheme();
   const { userColor, userId } = useUserMode();
-  const { pair, role, generateClaimCode, unpair } = usePairing();
-  const [claimCode, setClaimCode]     = useState<string | null>(null);
+  const { generateClaimCode, unpair } = usePairing();
+  const [claimCode, setClaimCode] = useState<string | null>(null);
   const [claimLoading, setClaimLoading] = useState(false);
-  const topInset = Platform.OS === 'ios' ? 10 : Math.max(insets.top, 10);
+
+  function handleClose() {
+    hapticLight();
+    onClose?.();
+  }
 
   async function handleGenerateClaim() {
     setClaimLoading(true);
@@ -245,244 +225,309 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
     }
   }
 
-  // Slide-up only — no per-section animations to avoid lag
-  const slideY = useRef(new Animated.Value(900)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.spring(slideY, { toValue: 0, useNativeDriver: true, damping: 32, stiffness: 420, mass: 0.65 }).start();
-    } else {
-      Animated.spring(slideY, { toValue: 900, useNativeDriver: true, damping: 26, stiffness: 380 }).start();
-    }
-  }, [visible]);
-
-  const patternEmoji = activeTheme.patternEmoji || '';
-
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <Pressable style={[s.backdrop, { backgroundColor: hexToRgba(appColors.label, 0.38) }]} onPress={onClose} />
+    <>
+      {/* 1px white cap so the top edge renders cleanly (no jagged seam with handle bar) */}
+      <View style={s.headerTopCap} />
+      {/* ── Header: no separate background so it reads as one strip with the sheet handle ── */}
+      <View
+        style={[
+          s.headerWrap,
+          {
+            paddingTop: headerTopPadding,
+            borderBottomColor: appColors.separator,
+          },
+        ]}
+        pointerEvents="box-none"
+      >
+        <View style={[s.headerBorder, { backgroundColor: appColors.separator }]} />
 
-      <Animated.View style={[s.sheet, { transform: [{ translateY: slideY }] }]}>
-        {/* ── AC tiled background ──────────────────── */}
-        <ACBackgroundStatic />
-
-        <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
-          {/* ── Glass header (extra top padding to clear Dynamic Island) ── */}
-          <View style={[s.headerWrap, { paddingTop: topInset, borderBottomColor: appColors.separator }]} pointerEvents="box-none">
+        <View style={s.headerRow}>
+          <View style={s.headerLeft}>
             <LinearGradient
-              colors={[hexToRgba(appColors.surface, 0.95), hexToRgba(appColors.surface, 0.88)]}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={[s.headerBorder, { backgroundColor: appColors.separator }]} />
-
-            {/* Floating decorative leaves */}
-            {patternEmoji ? (
-              <>
-                <FloatingLeaf emoji={patternEmoji} x={60}  delay={0}    />
-                <FloatingLeaf emoji={patternEmoji} x={200} delay={800}  />
-                <FloatingLeaf emoji={patternEmoji} x={320} delay={400}  />
-              </>
-            ) : null}
-
-            <View style={s.headerRow}>
-              <View style={s.headerLeft}>
-                <LinearGradient
-                  colors={[appColors.gradientFrom, appColors.gradientTo]}
-                  style={s.headerIconBadge}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                >
-                  <Ionicons name="settings" size={18} color="#fff" />
-                </LinearGradient>
-                <Text style={[s.headerTitle, { color: appColors.label }]}>Settings</Text>
-              </View>
-              <Pressable onPress={onClose} style={[s.closeBtn, { backgroundColor: hexToRgba(userColor, 0.12) }]} hitSlop={8}>
-                <Ionicons name="close" size={18} color={userColor} />
-              </Pressable>
+              colors={[appColors.gradientFrom, appColors.gradientTo]}
+              style={s.headerIconBadge}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Ionicons name="settings" size={18} color="#fff" />
+            </LinearGradient>
+            <View>
+              <Text style={[s.headerTitle, { color: appColors.label }]}>Settings</Text>
+              <Text style={[s.headerSubtitle, { color: appColors.labelTertiary }]}>
+                Theme · {activeTheme.emoji ? `${activeTheme.emoji} ${activeTheme.name}` : activeTheme.name}
+              </Text>
             </View>
           </View>
+          {showCloseButton && (
+            <Pressable
+              onPress={handleClose}
+              style={[s.closeBtn, { backgroundColor: hexToRgba(userColor, 0.14) }]}
+              hitSlop={12}
+            >
+              <Ionicons name="close" size={18} color={userColor} />
+            </Pressable>
+          )}
+        </View>
+      </View>
 
-          <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+              {/* ── Look & feel (theme + font) ── */}
+              <View>
+                <SectionHeader
+                  title="Look & feel"
+                  accentColors={[appColors.gradientFrom, appColors.gradientTo]}
+                />
+                <GlassCard style={[s.cardMargin, { paddingVertical: spacing.md }]} accentColor={appColors.gradientFrom}>
+                  <Text style={[s.displayLabel, { color: appColors.labelSecondary }]}>App theme</Text>
+                  <ThemePicker selectedThemeId={activeTheme.id} onSelectTheme={id => setThemeId(id)} />
+                  <View style={[s.sep, { backgroundColor: appColors.separator, marginTop: spacing.md }]} />
+                  <Text style={[s.displayLabel, { color: appColors.labelSecondary }]}>Font size</Text>
+                  <FontScalePicker value={fontSizeScale} onChange={v => setFontSizeScale(v)} />
+                </GlassCard>
+              </View>
 
-            {/* ── Your Profile ───────────────────────── */}
-            <View>
-              <SectionHeader title="Your Profile" pattern={activeTheme.pattern} accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
-              <GlassCard style={s.cardMargin} accentColor={appColors.gradientFrom}>
-                <ColorRow userId="adrian" label={getUserName('adrian')} />
-                <ColorRow userId="sarah"  label={getUserName('sarah')} isLast />
-              </GlassCard>
-            </View>
+              {/* ── Your Profile ───────────────────────── */}
+              <View>
+                <SectionHeader
+                  title="Your profile"
+                  pattern={activeTheme.pattern}
+                  accentColors={[appColors.gradientFrom, appColors.gradientTo]}
+                />
+                <GlassCard style={s.cardMargin} accentColor={appColors.gradientFrom}>
+                  <ColorRow userId="adrian" label={getUserName('adrian')} />
+                  <ColorRow userId="sarah"  label={getUserName('sarah')} isLast />
+                </GlassCard>
+              </View>
 
-            {/* ── Event categories (second so it’s visible without scrolling) ── */}
-            <View>
-              <SectionHeader title="Event categories" emoji="📁" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
-              <CategoriesSection />
-            </View>
+              {/* ── Event categories ── */}
+              <View>
+                <SectionHeader
+                  title="Event categories"
+                  emoji="📁"
+                  accentColors={[appColors.gradientFrom, appColors.gradientTo]}
+                />
+                <CategoriesSection />
+              </View>
 
-            {/* ── App Theme ──────────────────────────── */}
-            <View>
-              <SectionHeader title="App Theme" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
-              <ThemePicker selectedThemeId={activeTheme.id} onSelectTheme={id => setThemeId(id)} />
-            </View>
+              {/* ── Notifications ──────────────────────── */}
+              <View>
+                <SectionHeader
+                  title="Notifications"
+                  accentColors={[appColors.gradientFrom, appColors.gradientTo]}
+                />
+                <GlassCard style={s.cardMargin} accentColor={appColors.gradientFrom}>
+                  <NotificationRow />
+                  <CategoryNotificationToggles />
+                </GlassCard>
+              </View>
 
-            {/* ── Notifications ──────────────────────── */}
-            <View>
-              <SectionHeader title="Notifications" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
-              <GlassCard style={s.cardMargin} accentColor={appColors.gradientFrom}>
-                <NotificationRow />
-                <CategoryNotificationToggles />
-              </GlassCard>
-            </View>
+              {/* ── Auto delete ────────────────────────── */}
+              <View>
+                <AutoDeleteSection />
+              </View>
 
-            {/* ── Auto delete ────────────────────────── */}
-            <View>
-              <AutoDeleteSection />
-            </View>
-
-            {/* ── Font size ───────────────────────────── */}
-            <View>
-              <SectionHeader title="Display" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
-              <GlassCard style={[s.cardMargin, { paddingVertical: spacing.md }]} accentColor={appColors.gradientFrom}>
-                <Text style={[s.displayLabel, { color: appColors.labelSecondary }]}>Font Size</Text>
-                <FontScalePicker value={fontSizeScale} onChange={v => setFontSizeScale(v)} />
-              </GlassCard>
-            </View>
-
-            {/* ── Device / Pairing ───────────────────── */}
-            <View>
-              <SectionHeader title="Device" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
-              <GlassCard style={s.cardMargin}>
-                {/* Current role */}
-                <View style={s.aboutRow}>
-                  <Text style={[s.aboutLabel, { color: appColors.label }]}>Your role</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: userColor }} />
-                    <Text style={[s.aboutVersion, { color: appColors.label, fontWeight: '700' }]}>
-                      {userId.charAt(0).toUpperCase() + userId.slice(1)}
-                    </Text>
-                  </View>
-                </View>
-                <View style={[s.sep, { backgroundColor: appColors.separator }]} />
-
-                {/* Pair code */}
-                {pair?.pair_code && (
-                  <>
-                    <View style={s.aboutRow}>
-                      <Text style={[s.aboutLabel, { color: appColors.label }]}>Pair code</Text>
-                      <Text style={[s.aboutVersion, { color: appColors.labelSecondary, letterSpacing: 2, fontWeight: '700' }]}>
-                        {pair.pair_code}
+              {/* ── Device / Pairing ───────────────────── */}
+              <View>
+                <SectionHeader
+                  title="Device"
+                  accentColors={[appColors.gradientFrom, appColors.gradientTo]}
+                />
+                <GlassCard style={s.cardMargin}>
+                  {/* Current role */}
+                  <View style={s.aboutRow}>
+                    <Text style={[s.aboutLabel, { color: appColors.label }]}>Your role</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: userColor }} />
+                      <Text style={[s.aboutVersion, { color: appColors.label, fontWeight: '700' }]}>
+                        {userId.charAt(0).toUpperCase() + userId.slice(1)}
                       </Text>
                     </View>
-                    <View style={[s.sep, { backgroundColor: appColors.separator }]} />
-                  </>
-                )}
-
-                {/* Replace this device */}
-                {claimCode ? (
-                  <View style={{ gap: 6 }}>
-                    <Text style={[s.aboutLabel, { color: appColors.label }]}>Claim code (10 min)</Text>
-                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 8 }}>
-                      {claimCode.split('').map((ch, i) => (
-                        <View key={i} style={{ width: 36, height: 42, borderRadius: 8, backgroundColor: userColor + '18', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ fontSize: 22, fontWeight: '900', color: userColor }}>{ch}</Text>
-                        </View>
-                      ))}
-                    </View>
-                    <Text style={[s.aboutVersion, { color: appColors.labelTertiary, textAlign: 'center' }]}>
-                      Enter this on your new phone
-                    </Text>
-                    <Pressable onPress={() => setClaimCode(null)} style={{ alignSelf: 'center', marginTop: 4 }}>
-                      <Text style={{ fontSize: 13, color: appColors.labelTertiary, textDecorationLine: 'underline' }}>Dismiss</Text>
-                    </Pressable>
                   </View>
-                ) : (
-                  <Pressable onPress={handleGenerateClaim} style={[s.aboutRow, s.replaceDeviceRow]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                      <View style={[s.replaceDeviceIconWrap, { backgroundColor: hexToRgba(appColors.gradientFrom, 0.12) }]}>
-                        <Ionicons name="phone-portrait-outline" size={18} color={appColors.gradientFrom} />
+                  <View style={[s.sep, { backgroundColor: appColors.separator }]} />
+
+                  {/* Replace this device */}
+                  {claimCode ? (
+                    <View style={{ gap: 6 }}>
+                      <Text style={[s.aboutLabel, { color: appColors.label }]}>Claim code (10 min)</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 8 }}>
+                        {claimCode.split('').map((ch, i) => (
+                          <View
+                            key={i}
+                            style={{
+                              width: 36,
+                              height: 42,
+                              borderRadius: 8,
+                              backgroundColor: userColor + '18',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{ fontSize: 22, fontWeight: '900', color: userColor }}>{ch}</Text>
+                          </View>
+                        ))}
                       </View>
-                      <Text style={[s.aboutLabel, { color: appColors.label }]}>Replace this device</Text>
+                      <Text style={[s.aboutVersion, { color: appColors.labelTertiary, textAlign: 'center' }]}>
+                        Enter this on your new phone
+                      </Text>
+                      <Pressable onPress={() => setClaimCode(null)} style={{ alignSelf: 'center', marginTop: 4 }}>
+                        <Text
+                          style={{
+                            fontSize: 13,
+                            color: appColors.labelTertiary,
+                            textDecorationLine: 'underline',
+                          }}
+                        >
+                          Dismiss
+                        </Text>
+                      </Pressable>
                     </View>
-                    {claimLoading
-                      ? <ActivityIndicator size="small" color={appColors.gradientFrom} />
-                      : <Ionicons name="chevron-forward" size={16} color={appColors.labelTertiary} />
-                    }
+                  ) : (
+                    <Pressable
+                      onPress={handleGenerateClaim}
+                      style={({ pressed }) => [s.aboutRow, s.replaceDeviceRow, { opacity: pressed ? 0.8 : 1 }]}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <View
+                          style={[
+                            s.replaceDeviceIconWrap,
+                            { backgroundColor: hexToRgba(appColors.gradientFrom, 0.12) },
+                          ]}
+                        >
+                          <Ionicons name="phone-portrait-outline" size={18} color={appColors.gradientFrom} />
+                        </View>
+                        <Text style={[s.aboutLabel, { color: appColors.label }]}>Replace this device</Text>
+                      </View>
+                      {claimLoading ? (
+                        <ActivityIndicator size="small" color={appColors.gradientFrom} />
+                      ) : (
+                        <Ionicons name="chevron-forward" size={16} color={appColors.labelTertiary} />
+                      )}
+                    </Pressable>
+                  )}
+
+                  <View style={[s.sep, { backgroundColor: appColors.separator }]} />
+                  <Pressable
+                    style={({ pressed }) => [s.aboutRow, s.replaceDeviceRow, { opacity: pressed ? 0.8 : 1 }]}
+                    onPress={() => {
+                      Alert.alert(
+                        'Reset pairing?',
+                        "You'll see the setup screen again. Tap \"I am the owner\" to get a new code for Sarah.",
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Reset',
+                            style: 'destructive',
+                            onPress: () => {
+                              handleClose();
+                              unpair();
+                            },
+                          },
+                        ],
+                      );
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View
+                        style={[
+                          s.replaceDeviceIconWrap,
+                          { backgroundColor: hexToRgba('#EF4444', 0.12) },
+                        ]}
+                      >
+                        <Ionicons name="link-outline" size={18} color="#EF4444" />
+                      </View>
+                      <Text style={[s.aboutLabel, { color: appColors.labelSecondary }]}>Reset pairing</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={appColors.labelTertiary} />
                   </Pressable>
-                )}
+                </GlassCard>
+              </View>
 
-                {/* Reset pairing — show pairing screen again and get a new code for Sarah */}
-                <View style={[s.sep, { backgroundColor: appColors.separator }]} />
-                <Pressable
-                  onPress={() => {
-                    Alert.alert(
-                      'Reset pairing?',
-                      "You'll see the setup screen again. Tap \"I am the owner\" to get a new code for Sarah.",
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Reset', style: 'destructive', onPress: () => { onClose(); unpair(); } },
-                      ]
-                    );
-                  }}
-                  style={[s.aboutRow, s.replaceDeviceRow]}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <View style={[s.replaceDeviceIconWrap, { backgroundColor: hexToRgba('#EF4444', 0.12) }]}>
-                      <Ionicons name="link-outline" size={18} color="#EF4444" />
-                    </View>
-                    <Text style={[s.aboutLabel, { color: appColors.labelSecondary }]}>Reset pairing</Text>
+              {/* ── About ──────────────────────────────── */}
+              <View>
+                <SectionHeader
+                  title="About"
+                  accentColors={[appColors.gradientFrom, appColors.gradientTo]}
+                />
+                <GlassCard style={s.cardMargin}>
+                  <View style={s.aboutRow}>
+                    <Text style={[s.aboutLabel, { color: appColors.label }]}>Sarian</Text>
+                    <Text style={[s.aboutVersion, { color: appColors.labelTertiary }]}>v1.0.0</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color={appColors.labelTertiary} />
-                </Pressable>
-              </GlassCard>
-            </View>
+                  <View style={[s.sep, { backgroundColor: appColors.separator }]} />
+                  <View style={s.aboutRow}>
+                    <Text style={[s.aboutLabel, { color: appColors.label }]}>Made by Adrian & Sarah</Text>
+                  </View>
+                </GlassCard>
+              </View>
 
-            {/* ── About ──────────────────────────────── */}
-            <View>
-              <SectionHeader title="About" accentColors={[appColors.gradientFrom, appColors.gradientTo]} />
-              <GlassCard style={s.cardMargin}>
-                <View style={s.aboutRow}>
-                  <Text style={[s.aboutLabel, { color: appColors.label }]}>Sarian</Text>
-                  <Text style={[s.aboutVersion, { color: appColors.labelTertiary }]}>v1.0.0</Text>
-                </View>
-                <View style={[s.sep, { backgroundColor: appColors.separator }]} />
-                <View style={s.aboutRow}>
-                  <Text style={[s.aboutLabel, { color: appColors.label }]}>Made by Adrian & Sarah</Text>
-                </View>
-              </GlassCard>
-            </View>
+              <View style={{ height: spacing.xxxl * 2 }} />
+      </ScrollView>
+    </>
+  );
+}
 
-            <View style={{ height: spacing.xxxl * 3 }} />
-          </ScrollView>
+// ─── Sheet wrapper (same bottom sheet as calendar event form / AI flow) ────────
+interface SettingsSheetProps {
+  visible: boolean;
+  onClose: () => void;
+}
+
+export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
+  const topInset = Platform.OS === 'ios' ? 14 : 10;
+
+  function handleClose() {
+    hapticLight();
+    onClose();
+  }
+
+  return (
+    <Sheet visible={visible} onClose={handleClose} heightFraction={0.88} scrollable={false} backgroundColor="#FFFFFF">
+      <View style={s.sheetInner}>
+        <SafeAreaView style={s.sheetSafe} edges={['bottom']}>
+          <SettingsScreenContent
+            showCloseButton
+            onClose={handleClose}
+            headerTopPadding={topInset}
+          />
         </SafeAreaView>
-      </Animated.View>
-    </Modal>
+      </View>
+    </Sheet>
   );
 }
 
 const s = StyleSheet.create({
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  sheet: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
-    height: '88%',
-    borderTopLeftRadius: radius.xxl,
-    borderTopRightRadius: radius.xxl,
+  sheetInner: { flex: 1, position: 'relative', backgroundColor: '#FFFFFF' },
+  sheetSafe: { flex: 1 },
+  sidebarPanel: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
     overflow: 'hidden',
+    ...shadows.lg,
+  },
+  headerTopCap: {
+    height: 1,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
   },
   headerWrap: {
     position: 'relative',
-    overflow: 'hidden',
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
   },
-  headerBorder: { position: 'absolute', bottom: 0, left: 0, right: 0, height: StyleSheet.hairlineWidth },
+  headerBorder: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 1 },
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl, paddingTop: 6, paddingBottom: spacing.sm,
+    paddingHorizontal: spacing.xl, paddingTop: 8, paddingBottom: spacing.md,
     zIndex: 2,
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  headerIconBadge: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  headerIconBadge: { width: 42, height: 42, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { ...typography.title3 },
-  closeBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  scroll: { paddingTop: spacing.sm, paddingBottom: spacing.xxxl },
+  headerSubtitle: { ...typography.footnote, marginTop: 2 },
+  closeBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  scroll: { paddingTop: spacing.md, paddingBottom: spacing.xxxl * 2 },
   cardMargin: { marginHorizontal: spacing.xl },
   displayLabel: { ...typography.subhead, paddingHorizontal: spacing.xl, marginBottom: spacing.sm },
   aboutRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xl, paddingVertical: spacing.md },

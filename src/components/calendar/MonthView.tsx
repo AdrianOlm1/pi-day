@@ -1,11 +1,12 @@
-import React, { useMemo, useRef, memo } from 'react';
-import { View, Pressable, StyleSheet, Animated } from 'react-native';
+import React, { useMemo, useRef, memo, useEffect } from 'react';
+import { View, Pressable, StyleSheet, Animated, Easing } from 'react-native';
 import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { getMonthGrid, isSameDay, isSameMonth, formatDate } from '@/utils/date';
 import { ColorDot } from '@/components/ui/ColorDot';
 import type { EventOccurrence } from '@/types';
 import { typography, radius, spacing } from '@/theme';
 import { useAppColors } from '@/contexts/ThemeContext';
+import { hapticLight } from '@/utils/haptics';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -64,48 +65,86 @@ export function MonthView({ month, selectedDate, occurrencesByDate, onSelectDate
   );
 }
 
+const TODAY_PULSE_DURATION = 2400;
+
 function DayCellInner({ day, isToday, isSelected, inMonth, events, accentColor, onSelectDate, appColors }: {
   day: Date; isToday: boolean; isSelected: boolean; inMonth: boolean;
   events: EventOccurrence[]; accentColor: string; onSelectDate: (d: Date) => void;
   appColors: { label: string; labelQuaternary: string };
 }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const pulseOpacity = useRef(new Animated.Value(0.4)).current;
+
   const onPressIn = () => Animated.spring(scale, { toValue: 0.88, useNativeDriver: true, damping: 20, stiffness: 400 }).start();
   const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 300 }).start();
 
+  // Today: gentle breathing pulse so "today" feels alive
+  useEffect(() => {
+    if (!isToday) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseOpacity, {
+          toValue: 0.75,
+          duration: TODAY_PULSE_DURATION / 2,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseOpacity, {
+          toValue: 0.4,
+          duration: TODAY_PULSE_DURATION / 2,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [isToday, pulseOpacity]);
+
   return (
-    <Pressable onPress={() => onSelectDate(day)} onPressIn={onPressIn} onPressOut={onPressOut} style={styles.dayCell}>
-      <Animated.View style={[
-        styles.dayInner,
-        isSelected && { backgroundColor: accentColor + '16' },
-        { transform: [{ scale }] },
-      ]}>
-        <View style={[
-          styles.dayCircle,
-          isToday && { backgroundColor: accentColor },
-          isSelected && !isToday && { borderWidth: 1.5, borderColor: accentColor },
+    <Pressable onPress={() => { hapticLight(); onSelectDate(day); }} onPressIn={onPressIn} onPressOut={onPressOut} style={styles.dayCell}>
+      <Animated.View style={[styles.dayInner, { transform: [{ scale }] }]}>
+        <Animated.View style={[
+          styles.dayInnerContent,
+          isSelected && { backgroundColor: accentColor + '16' },
         ]}>
-          <Text style={[
-            styles.dayText,
-            { color: appColors.label },
-            !inMonth && { color: appColors.labelQuaternary },
-            isToday && styles.dayTextToday,
-            isSelected && !isToday && { color: accentColor, fontWeight: '700' },
+          {/* Today pulse glow behind circle */}
+          {isToday && (
+            <Animated.View
+              style={[
+                styles.todayPulse,
+                { backgroundColor: accentColor, opacity: pulseOpacity },
+              ]}
+              pointerEvents="none"
+            />
+          )}
+          <View style={[
+            styles.dayCircle,
+            isToday && { backgroundColor: accentColor },
+            isSelected && !isToday && { borderWidth: 1.5, borderColor: accentColor },
           ]}>
-            {day.getDate()}
-          </Text>
-        </View>
-          {events.length > 0 ? (
-          <View style={styles.dots}>
-            {events.slice(0, 3).map((ev, i) => (
-              <ColorDot
-                key={i}
-                color={isSelected ? accentColor : (ev.category?.color ?? ev.color)}
-                size={4}
-              />
-            ))}
+            <Text style={[
+              styles.dayText,
+              { color: appColors.label },
+              !inMonth && { color: appColors.labelQuaternary },
+              isToday && styles.dayTextToday,
+              isSelected && !isToday && { color: accentColor, fontWeight: '700' },
+            ]}>
+              {day.getDate()}
+            </Text>
           </View>
-        ) : <View style={styles.dotsEmpty} />}
+          {events.length > 0 ? (
+            <View style={styles.dots}>
+              {events.slice(0, 3).map((ev, i) => (
+                <ColorDot
+                  key={i}
+                  color={isSelected ? accentColor : (ev.category?.color ?? ev.color)}
+                  size={4}
+                />
+              ))}
+            </View>
+          ) : <View style={styles.dotsEmpty} />}
+        </Animated.View>
       </Animated.View>
     </Pressable>
   );
@@ -137,8 +176,18 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: spacing.xs, paddingTop: spacing.xs },
   gridNoHeader: { paddingTop: spacing.xxs },
   dayCell: { width: `${100 / 7}%`, alignItems: 'center', paddingVertical: 2 },
-  dayInner: { alignItems: 'center', borderRadius: radius.sm, paddingVertical: 3, width: '100%' },
-  dayCircle: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  dayInner: { alignItems: 'center', width: '100%', position: 'relative' },
+  dayInnerContent: { alignItems: 'center', borderRadius: radius.sm, paddingVertical: 3, width: '100%', position: 'relative' },
+  todayPulse: {
+    position: 'absolute',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    top: -1,
+    left: '50%',
+    marginLeft: -19,
+  },
+  dayCircle: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', zIndex: 1 },
   dayText: { fontSize: 14, fontWeight: '400' },
   dayTextToday: { color: '#fff', fontWeight: '700' },
   dots: { flexDirection: 'row', gap: 2, marginTop: 3, height: 5, alignItems: 'center' },

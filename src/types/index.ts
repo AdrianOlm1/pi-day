@@ -83,33 +83,63 @@ export interface Todo {
   updated_at: string;
 }
 
-// ─── Habits (replaces Goals) ──────────────────────────────────────────────────
+// ─── Note ────────────────────────────────────────────────────────────────────
 
-export type GoalPeriodType = 'daily' | 'weekly' | 'monthly';
+export interface Note {
+  id: string;
+  title: string;
+  body: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
-/** A habit / streak goal — stored in the `goals` table (extended with streak + scheduling + metric cols) */
+// ─── Goals (unified) ───────────────────────────────────────────────────────────
+
+export type GoalPeriodType = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'long_term';
+
+/** A goal — stored in the `goals` table. long_term = choose a specific day to have something done (target_end_date required). */
 export interface Goal {
   id: string;
   owner: UserId;
   title: string;
   period_type: GoalPeriodType;
   reminder_enabled: boolean;
-  /** Display emoji for this habit */
+  /** When true, goal repeats each period (e.g. every week). When false, one-off target. */
+  repeating?: boolean;
+  /** Display emoji for this goal */
   emoji: string;
   /** Optional accountability stake between partners (e.g. "Loser buys coffee") */
   stake: string | null;
   /**
-   * Optional active days for daily habits (0=Sun … 6=Sat).
+   * Optional active days for daily goals (0=Sun … 6=Sat).
    * When null, treated as active every day.
    */
   active_days?: number[] | null;
   /**
    * Optional numeric target per period (e.g. 10 miles, 8 glasses).
-   * When null, the habit is binary (done / not done).
+   * When null, the goal is binary (done / not done).
    */
   metric_target?: number | null;
-  /** Optional display unit for metric habits, e.g. "miles", "pages". */
+  /** Optional display unit for metric goals, e.g. "miles", "pages". */
   metric_unit?: string | null;
+  /** AI-generated smaller steps to complete this goal (optional). */
+  sub_objectives?: string[] | null;
+  /**
+   * For one-off daily goals: YYYY-MM-DD. When set with period_type=daily and repeating=false, this is a daily goal for that day.
+   */
+  due_date?: string | null;
+  /** Optional time for daily goals, e.g. "14:30" (HH:mm). */
+  due_time?: string | null;
+  /**
+   * Optional end date for the goal (e.g. "run marathon by Dec 31").
+   * When set, the goal has a target finish date.
+   */
+  target_end_date?: string | null;
+  /**
+   * Optional "big goal" description (e.g. "run a marathon", "get a job").
+   * Used with AI to suggest sub_objectives / plan.
+   */
+  target_description?: string | null;
   /** Current streak length in periods */
   current_streak: number;
   /** All-time best streak */
@@ -120,7 +150,7 @@ export interface Goal {
   updated_at: string;
 }
 
-/** One check-in record for a habit (one per day for binary; one per period for metric) */
+/** One check-in record for a goal (one per day for binary; one per period for metric) */
 export interface HabitCompletion {
   id: string;
   habit_id: string;

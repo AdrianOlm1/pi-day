@@ -1,6 +1,6 @@
 /**
  * Pi Day — design tokens
- * Clean, modern, iOS-native feel.
+ * Clean, modern, iOS-native feel. Cozy edition: softer shadows, pill-friendly radius.
  */
 
 export const spacing = {
@@ -21,6 +21,8 @@ export const radius = {
   lg:  18,
   xl:  24,
   xxl: 32,
+  /** Cozy cards: extra round for main content cards */
+  cozyCard: 28,
   full: 9999,
 } as const;
 
@@ -68,39 +70,55 @@ export const shadows = {
   xs: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 2,
+    shadowOpacity: 0.02,
+    shadowRadius: 3,
     elevation: 1,
   },
   sm: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
     elevation: 2,
   },
   md: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.07,
-    shadowRadius: 12,
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
     elevation: 4,
   },
   lg: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.10,
-    shadowRadius: 24,
+    shadowOpacity: 0.07,
+    shadowRadius: 28,
     elevation: 8,
   },
   fab: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.20,
-    shadowRadius: 20,
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
     elevation: 12,
   },
+  /** Softer shadow for glass cards; use with tintedShadow() for accent glow */
+  cozy: {
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 4,
+  },
 } as const;
+
+/** Returns shadow style with a tint color (e.g. theme gradient) for a warmer glow */
+export function tintedShadow(tintHex: string, opacity: number = 0.12) {
+  return {
+    ...shadows.cozy,
+    shadowColor: tintHex,
+    shadowOpacity: opacity,
+  };
+}
 
 export const animation = {
   spring:       { damping: 18, stiffness: 220, mass: 0.8 },

@@ -14,13 +14,18 @@ import { format, addMonths, subMonths, startOfMonth } from 'date-fns';
 import { useUserMode } from '@/contexts/UserModeContext';
 import { useAppColors } from '@/contexts/ThemeContext';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { useAccounts, useTransactions, useFinanceCategories, useBudgets } from '@/hooks/useFinance';
+import { Sheet } from '@/components/ui/Sheet';
+import { Button } from '@/components/ui/Button';
+import { useAccounts, useTransactions, useFinanceCategories, useBudgets, useBills } from '@/hooks/useFinance';
 import * as FinanceService from '@/services/finance';
 import { playTrash } from '@/utils/sounds';
 import { parseCSV } from '@/services/csvImport';
 import { categorizeAll } from '@/services/aiCategorize';
 import { spacing, typography, radius, shadows, colors } from '@/theme';
-import type { FinanceTransaction, FinanceCategory, FinanceAccount } from '@/types';
+import { useEmptyStateMessage } from '@/hooks/useEmptyStateMessage';
+import { EMPTY_FINANCE, EMPTY_FINANCE_TXN } from '@/utils/emptyStateMessages';
+import { getComfortLineForTab } from '@/utils/greetings';
+import type { FinanceTransaction, FinanceCategory, FinanceAccount, BudgetSummary } from '@/types';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -163,7 +168,7 @@ function MiniBarChart({ data, color }: { data: Array<{ month: string; income: nu
       {data.map((d, i) => (
         <View key={i} style={mb.col}>
           <View style={mb.barGroup}>
-            <View style={[mb.bar, { height: Math.max(2, (d.income / maxV) * 60), backgroundColor: hexToRgba('#22C55E', 0.7) }]} />
+            <View style={[mb.bar, { height: Math.max(2, (d.income / maxV) * 60), backgroundColor: hexToRgba(appColors.success, 0.7) }]} />
             <View style={[mb.bar, { height: Math.max(2, (d.expense / maxV) * 60), backgroundColor: hexToRgba(color, 0.75) }]} />
           </View>
           <Text style={[mb.label, { color: appColors.labelTertiary }]}>{d.month}</Text>
@@ -196,11 +201,11 @@ function TxnRow({ txn, onPress }: { txn: FinanceTransaction; onPress: () => void
       <View style={tr.mid}>
         <Text style={[tr.title, { color: appColors.label }]} numberOfLines={1}>{txn.title}</Text>
         <Text style={[tr.sub, { color: appColors.labelTertiary }]}>
-          {txn.category?.name ?? <Text style={{ color: '#F59E0B', fontWeight: '600' }}>Uncategorized</Text>}
+          {txn.category?.name ?? <Text style={{ color: appColors.warning, fontWeight: '600' }}>Uncategorized</Text>}
           {' · '}{fmtDate(txn.date)}
         </Text>
       </View>
-      <Text style={[tr.amt, { color: isIncome ? '#22C55E' : isExpense ? appColors.label : appColors.labelSecondary }]}>
+      <Text style={[tr.amt, { color: isIncome ? appColors.success : isExpense ? appColors.label : appColors.labelSecondary }]}>
         {isIncome ? '+' : isExpense ? '-' : ''}{fmtMoney(Math.abs(txn.amount))}
       </Text>
     </Pressable>
@@ -231,12 +236,12 @@ function BudgetBar({ label, icon, color, spent, allocated }: {
       <View style={bb.mid}>
         <View style={bb.topRow}>
           <Text style={[bb.name, { color: appColors.label }]} numberOfLines={1}>{label}</Text>
-          <Text style={[bb.amt, { color: over ? '#EF4444' : appColors.labelSecondary }]}>
+          <Text style={[bb.amt, { color: over ? appColors.destructive : appColors.labelSecondary }]}>
             {fmtMoney(spent)} / {fmtMoney(allocated)}
           </Text>
         </View>
         <View style={[bb.track, { backgroundColor: hexToRgba(color, 0.1) }]}>
-          <View style={[bb.fill, { width: `${Math.round(pct * 100)}%`, backgroundColor: over ? '#EF4444' : color }]} />
+          <View style={[bb.fill, { width: `${Math.round(pct * 100)}%`, backgroundColor: over ? appColors.destructive : color }]} />
         </View>
       </View>
     </View>
@@ -397,7 +402,7 @@ function UncategorizedModal({ visible, transactions, categories, onClose, onCate
         <View style={sheet.handle} />
         <Text style={[sheet.title, { color: appColors.label }]}>Uncategorized</Text>
         {uncat.length === 0
-          ? <Text style={[dm.meta, { color: '#22C55E' }]}>All caught up ✓</Text>
+          ? <Text style={[dm.meta, { color: appColors.success }]}>All caught up ✓</Text>
           : <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false}>
               {uncat.map(txn => {
                 const open = openId === txn.id;
@@ -491,89 +496,189 @@ function AddTransactionModal({ visible, onClose, onAdd, accounts, categories, us
   const filteredCats = categories.filter(c => c.type === type);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={() => { onClose(); reset(); }}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
-        <Pressable style={sheet.overlay} onPress={() => { onClose(); reset(); }} />
-        <View style={[sheet.card, { backgroundColor: appColors.surface }]}>
-          <View style={sheet.handle} />
-          <Text style={[sheet.title, { color: appColors.label }]}>Add Transaction</Text>
+    <Sheet visible={visible} onClose={() => { onClose(); reset(); }} heightFraction={0.8}>
+      <Text style={[sheet.title, { color: appColors.label }]}>Add transaction</Text>
 
-          {/* Type */}
-          <View style={add.typeRow}>
-            {(['expense','income'] as const).map(t => (
-              <Pressable key={t} onPress={() => { setType(t); setCatId(''); }}
-                style={[add.typeBtn, type === t && { backgroundColor: t === 'expense' ? hexToRgba('#EF4444', 0.12) : hexToRgba('#22C55E', 0.12), borderColor: t === 'expense' ? '#EF4444' : '#22C55E' }]}>
-                <Ionicons name={t === 'expense' ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'} size={14} color={type === t ? (t === 'expense' ? '#EF4444' : '#22C55E') : appColors.labelTertiary} />
-                <Text style={[add.typeBtnText, { color: type === t ? (t === 'expense' ? '#EF4444' : '#22C55E') : appColors.labelSecondary }]}>
-                  {t === 'expense' ? 'Expense' : 'Income'}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+      {/* Type */}
+      <View style={add.typeRow}>
+        {(['expense', 'income'] as const).map(t => (
+          <Pressable
+            key={t}
+            onPress={() => { setType(t); setCatId(''); }}
+            style={[
+              add.typeBtn,
+              type === t && {
+                backgroundColor:
+                  t === 'expense'
+                    ? hexToRgba(appColors.destructive, 0.08)
+                    : hexToRgba(appColors.success, 0.08),
+                borderColor: t === 'expense' ? appColors.destructive : appColors.success,
+              },
+            ]}
+          >
+            <Ionicons
+              name={t === 'expense' ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'}
+              size={16}
+              color={
+                type === t
+                  ? t === 'expense'
+                    ? appColors.destructive
+                    : appColors.success
+                  : appColors.labelTertiary
+              }
+            />
+            <Text
+              style={[
+                add.typeBtnText,
+                {
+                  color:
+                    type === t
+                      ? t === 'expense'
+                        ? appColors.destructive
+                        : appColors.success
+                      : appColors.labelSecondary,
+                },
+              ]}
+            >
+              {t === 'expense' ? 'Expense' : 'Income'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
-          {/* Amount — prominent */}
-          <View style={[add.amtWrap, { borderColor: hexToRgba(userColor, 0.35) }]}>
-            <Text style={[add.amtPrefix, { color: appColors.labelTertiary }]}>$</Text>
-            <RNTextInput ref={amtRef} value={amount} onChangeText={setAmount}
-              placeholder="0.00" placeholderTextColor={appColors.labelTertiary}
-              keyboardType="decimal-pad" returnKeyType="next"
-              style={[add.amtInput, { color: appColors.label }]} autoFocus />
-          </View>
+      {/* Amount */}
+      <View style={[add.amtWrap, { borderColor: hexToRgba(userColor, 0.35) }]}>
+        <Text style={[add.amtPrefix, { color: appColors.labelTertiary }]}>$</Text>
+        <RNTextInput
+          ref={amtRef}
+          value={amount}
+          onChangeText={setAmount}
+          placeholder="0.00"
+          placeholderTextColor={appColors.labelTertiary}
+          keyboardType="decimal-pad"
+          returnKeyType="next"
+          style={[add.amtInput, { color: appColors.label }]}
+          autoFocus
+        />
+      </View>
 
-          {/* Title */}
-          <View style={[sheet.inputRow, { borderColor: hexToRgba(userColor, 0.2) }]}>
-            <RNTextInput value={title} onChangeText={setTitle}
-              placeholder="Description" placeholderTextColor={appColors.labelTertiary}
-              returnKeyType="done" style={[sheet.inputText, { color: appColors.label }]} />
-          </View>
+      {/* Title */}
+      <View style={[sheet.inputRow, { borderColor: hexToRgba(userColor, 0.2) }]}>
+        <RNTextInput
+          value={title}
+          onChangeText={setTitle}
+          placeholder="Description"
+          placeholderTextColor={appColors.labelTertiary}
+          returnKeyType="done"
+          style={[sheet.inputText, { color: appColors.label }]}
+        />
+      </View>
 
-          {/* Date */}
-          <View style={[sheet.inputRow, { borderColor: 'rgba(0,0,0,0.1)', marginBottom: spacing.md }]}>
-            <Ionicons name="calendar-outline" size={14} color={appColors.labelTertiary} style={{ marginRight: 6 }} />
-            <RNTextInput value={date} onChangeText={setDate}
-              placeholder="YYYY-MM-DD" placeholderTextColor={appColors.labelTertiary}
-              style={[sheet.inputText, { color: appColors.label }]} returnKeyType="done" />
-          </View>
+      {/* Date */}
+      <View style={[sheet.inputRow, { borderColor: 'rgba(0,0,0,0.08)', marginBottom: spacing.md }]}>
+        <Ionicons
+          name="calendar-outline"
+          size={16}
+          color={appColors.labelTertiary}
+          style={{ marginRight: 6 }}
+        />
+        <RNTextInput
+          value={date}
+          onChangeText={setDate}
+          placeholder="YYYY-MM-DD"
+          placeholderTextColor={appColors.labelTertiary}
+          style={[sheet.inputText, { color: appColors.label }]}
+          returnKeyType="done"
+        />
+      </View>
 
-          {/* Account chips */}
-          <Text style={[sheet.label, { color: appColors.labelTertiary }]}>Account</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
-            <View style={{ flexDirection: 'row', gap: 6, paddingRight: 4 }}>
-              {accounts.map(a => (
-                <Pressable key={a.id} onPress={() => setAcctId(a.id)}
-                  style={[add.chip, acctId === a.id && { backgroundColor: hexToRgba(a.color, 0.12), borderColor: a.color }]}>
-                  <Text style={[add.chipText, { color: acctId === a.id ? a.color : appColors.labelSecondary }]}>{a.name}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </ScrollView>
-
-          {/* Category chips */}
-          <Text style={[sheet.label, { color: appColors.labelTertiary }]}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
-            <View style={{ flexDirection: 'row', gap: 6, paddingRight: 4 }}>
-              {filteredCats.map(c => (
-                <Pressable key={c.id} onPress={() => setCatId(c.id)}
-                  style={[add.chip, catId === c.id && { backgroundColor: hexToRgba(c.color, 0.12), borderColor: c.color }]}>
-                  <Ionicons name={c.icon as any} size={11} color={catId === c.id ? c.color : appColors.labelTertiary} />
-                  <Text style={[add.chipText, { color: catId === c.id ? c.color : appColors.labelSecondary }]}>{c.name}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </ScrollView>
-
-          <View style={sheet.actionRow}>
-            <Pressable onPress={() => { onClose(); reset(); }} style={[sheet.btn, { backgroundColor: 'rgba(0,0,0,0.06)' }]}>
-              <Text style={[sheet.btnText, { color: appColors.labelSecondary }]}>Cancel</Text>
+      {/* Account chips */}
+      <Text style={[sheet.label, { color: appColors.labelTertiary }]}>Account</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
+        <View style={{ flexDirection: 'row', gap: 6, paddingRight: 4 }}>
+          {accounts.map(a => (
+            <Pressable
+              key={a.id}
+              onPress={() => setAcctId(a.id)}
+              style={[
+                add.chip,
+                acctId === a.id && {
+                  backgroundColor: hexToRgba(a.color, 0.12),
+                  borderColor: a.color,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  add.chipText,
+                  { color: acctId === a.id ? a.color : appColors.labelSecondary },
+                ]}
+              >
+                {a.name}
+              </Text>
             </Pressable>
-            <Pressable onPress={handleAdd} disabled={saving || !title.trim() || !amount.trim()}
-              style={[sheet.btn, { backgroundColor: hexToRgba(userColor, 0.12), opacity: (saving || !title.trim() || !amount.trim()) ? 0.4 : 1 }]}>
-              <Text style={[sheet.btnText, { color: userColor }]}>{saving ? 'Saving…' : 'Add'}</Text>
-            </Pressable>
-          </View>
+          ))}
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      </ScrollView>
+
+      {/* Category chips */}
+      <Text style={[sheet.label, { color: appColors.labelTertiary }]}>Category</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
+        <View style={{ flexDirection: 'row', gap: 6, paddingRight: 4 }}>
+          {filteredCats.map(c => (
+            <Pressable
+              key={c.id}
+              onPress={() => setCatId(c.id)}
+              style={[
+                add.chip,
+                catId === c.id && {
+                  backgroundColor: hexToRgba(c.color, 0.12),
+                  borderColor: c.color,
+                },
+              ]}
+            >
+              <Ionicons
+                name={c.icon as any}
+                size={11}
+                color={catId === c.id ? c.color : appColors.labelTertiary}
+              />
+              <Text
+                style={[
+                  add.chipText,
+                  { color: catId === c.id ? c.color : appColors.labelSecondary },
+                ]}
+              >
+                {c.name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
+
+      <View style={sheet.actionRow}>
+        <Pressable
+          onPress={() => { onClose(); reset(); }}
+          style={[sheet.btn, { backgroundColor: 'rgba(0,0,0,0.04)' }]}
+        >
+          <Text style={[sheet.btnText, { color: appColors.labelSecondary }]}>Cancel</Text>
+        </Pressable>
+        <Pressable
+          onPress={handleAdd}
+          disabled={saving || !title.trim() || !amount.trim()}
+          style={[
+            sheet.btn,
+            {
+              backgroundColor: hexToRgba(userColor, 0.14),
+              opacity: (saving || !title.trim() || !amount.trim()) ? 0.5 : 1,
+            },
+          ]}
+        >
+          <Text style={[sheet.btnText, { color: userColor }]}>
+            {saving ? 'Saving…' : 'Add'}
+          </Text>
+        </Pressable>
+      </View>
+    </Sheet>
   );
 }
 const add = StyleSheet.create({
@@ -735,7 +840,7 @@ function CSVImportModal({ visible, onClose, accounts, categories, userId, userCo
         {stage === 'done' && (
           <>
             <View style={ci.doneWrap}>
-              <Ionicons name="checkmark-circle" size={52} color="#22C55E" />
+              <Ionicons name="checkmark-circle" size={52} color={appColors.success} />
               <Text style={[ci.doneText, { color: appColors.label }]}>Import complete!</Text>
               <Text style={[ci.doneSub, { color: appColors.labelSecondary }]}>{preview?.count} transactions added</Text>
             </View>
@@ -781,6 +886,10 @@ export default function FinanceScreen() {
   const [showUncat,   setShowUncat]   = useState(false);
   const [showAdd,     setShowAdd]     = useState(false);
   const [showCSV,     setShowCSV]     = useState(false);
+  const [topMerchants, setTopMerchants] = useState<FinanceService.MerchantSummary[]>([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [showAccountSheet, setShowAccountSheet] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<FinanceAccount | null>(null);
 
   const {
     transactions, allTxnsForBalance, loading: txnLoading,
@@ -788,13 +897,40 @@ export default function FinanceScreen() {
     monthIncome, monthExpense, dailySpending, monthlyTotals,
   } = useTransactions(userId, month);
 
-  const { accounts, loading: acctLoading, refresh: refreshAccounts, netWorth } = useAccounts(userId, allTxnsForBalance);
+  const {
+    accounts,
+    loading: acctLoading,
+    refresh: refreshAccounts,
+    netWorth,
+    createAccount,
+    updateAccount,
+  } = useAccounts(userId, allTxnsForBalance);
   const { categories, refresh: refreshCats } = useFinanceCategories(userId);
-  const { summary: budgetSummary, loading: budgetLoading } = useBudgets(userId, month);
+  const { summary: budgetSummary, loading: budgetLoading, upsertBudget } = useBudgets(userId, month);
+  const { upcomingBills, totalMonthlyBills, loading: billsLoading } = useBills(userId);
 
   useFocusEffect(useCallback(() => {
     refreshTxns(); refreshAccounts(); refreshCats();
   }, [refreshTxns, refreshAccounts, refreshCats]));
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadInsights() {
+      try {
+        setInsightsLoading(true);
+        const start = format(startOfMonth(month), 'yyyy-MM-dd');
+        const end   = format(startOfMonth(addMonths(month, 1)), 'yyyy-MM-dd');
+        const data  = await FinanceService.fetchTopMerchants(userId, start, end, 5);
+        if (!cancelled) setTopMerchants(data);
+      } catch {
+        if (!cancelled) setTopMerchants([]);
+      } finally {
+        if (!cancelled) setInsightsLoading(false);
+      }
+    }
+    loadInsights();
+    return () => { cancelled = true; };
+  }, [userId, month]);
 
   const uncatCount = useMemo(() => transactions.filter(t => !t.category_id).length, [transactions]);
 
@@ -828,6 +964,23 @@ export default function FinanceScreen() {
   // ── Overview ─────────────────────────────────────────────────────────────────
   function OverviewTab() {
     const net = monthIncome - monthExpense;
+    const emptyMsg = useEmptyStateMessage(EMPTY_FINANCE);
+    const totalAllocated = budgetSummary.reduce((s, b) => s + b.allocated, 0);
+    const totalSpent     = budgetSummary.reduce((s, b) => s + b.spent, 0);
+    const remaining      = totalAllocated - totalSpent;
+    const daysInMonth    = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+    const now            = new Date();
+    const isCurrentMonth = now.getFullYear() === month.getFullYear() && now.getMonth() === month.getMonth();
+    const daysElapsed    = isCurrentMonth ? Math.min(now.getDate(), daysInMonth) : daysInMonth;
+    const paceTarget     = totalAllocated > 0 ? (totalAllocated * (daysElapsed / daysInMonth)) : 0;
+    let paceLabel = '';
+    if (totalAllocated > 0) {
+      const diff = totalSpent - paceTarget;
+      const threshold = totalAllocated * 0.05;
+      if (Math.abs(diff) <= threshold) paceLabel = 'Right on track for this month.';
+      else if (diff < 0) paceLabel = 'A bit under pace — nice breathing room.';
+      else paceLabel = 'Spending faster than planned this month.';
+    }
     return (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         {/* Hero summary card */}
@@ -856,6 +1009,50 @@ export default function FinanceScreen() {
           </View>
         </View>
 
+        {/* Budget pulse for this month */}
+        {budgetSummary.length > 0 && (
+          <GlassCard style={ov.card}>
+            <View style={ov.cardHeader}>
+              <Text style={[ov.cardTitle, { color: appColors.labelSecondary }]}>MONTHLY BUDGET</Text>
+              <Text style={[ov.cardSub, { color: appColors.labelTertiary }]}>{fmtMoney(totalAllocated)} planned</Text>
+            </View>
+            <View style={ov.budgetRow}>
+              <View style={ov.budgetItem}>
+                <Text style={[ov.budgetValue, { color: appColors.destructive }]}>{fmtMoney(totalSpent)}</Text>
+                <Text style={[ov.budgetLabel, { color: appColors.labelTertiary }]}>Spent so far</Text>
+              </View>
+              <View style={ov.budgetItem}>
+                <Text style={[ov.budgetValue, { color: remaining >= 0 ? appColors.success : appColors.destructive }]}>
+                  {fmtMoney(Math.abs(remaining))}
+                </Text>
+                <Text style={[ov.budgetLabel, { color: appColors.labelTertiary }]}>
+                  {remaining >= 0 ? 'Left this month' : 'Over budget'}
+                </Text>
+              </View>
+              {totalMonthlyBills > 0 && (
+                <View style={ov.budgetItem}>
+                  <Text style={[ov.budgetValue, { color: appColors.labelSecondary }]}>{fmtMoney(totalMonthlyBills)}</Text>
+                  <Text style={[ov.budgetLabel, { color: appColors.labelTertiary }]}>Monthly bills</Text>
+                </View>
+              )}
+            </View>
+            <View style={[ov.budgetTrack, { backgroundColor: hexToRgba(userColor, 0.08) }]}>
+              <View
+                style={[
+                  ov.budgetFill,
+                  {
+                    width: `${Math.min(100, totalAllocated > 0 ? (totalSpent / totalAllocated) * 100 : 0)}%`,
+                    backgroundColor: remaining >= 0 ? userColor : appColors.destructive,
+                  },
+                ]}
+              />
+            </View>
+            {paceLabel ? (
+              <Text style={[ov.budgetPace, { color: appColors.labelTertiary }]}>{paceLabel}</Text>
+            ) : null}
+          </GlassCard>
+        )}
+
         {/* Heatmap */}
         <GlassCard style={ov.card}>
           <View style={ov.cardHeader}>
@@ -864,6 +1061,9 @@ export default function FinanceScreen() {
           </View>
           <SpendingHeatmap dailySpending={dailySpending} month={month}
             onMonthChange={setMonth} onDayPress={d => setDayModal(d)} accentColor={userColor} />
+          <Text style={[ov.heatHint, { color: appColors.labelTertiary }]}>
+            Darker squares = higher spend. Tap a day to peek.
+          </Text>
         </GlassCard>
 
         {/* 6-month trend */}
@@ -872,11 +1072,39 @@ export default function FinanceScreen() {
             <View style={ov.cardHeader}>
               <Text style={[ov.cardTitle, { color: appColors.labelSecondary }]}>6-MONTH TREND</Text>
               <View style={ov.legend}>
-                <View style={[ov.legendDot, { backgroundColor: '#22C55E' }]} /><Text style={[ov.legendText, { color: appColors.labelTertiary }]}>In</Text>
+                <View style={[ov.legendDot, { backgroundColor: appColors.success }]} /><Text style={[ov.legendText, { color: appColors.labelTertiary }]}>In</Text>
                 <View style={[ov.legendDot, { backgroundColor: userColor }]} /><Text style={[ov.legendText, { color: appColors.labelTertiary }]}>Out</Text>
               </View>
             </View>
             <MiniBarChart data={monthlyTotals} color={userColor} />
+          </GlassCard>
+        )}
+
+        {/* Upcoming bills */}
+        {upcomingBills.length > 0 && (
+          <GlassCard style={ov.card}>
+            <View style={ov.cardHeader}>
+              <Text style={[ov.cardTitle, { color: appColors.labelSecondary }]}>UPCOMING BILLS</Text>
+              {totalMonthlyBills > 0 && (
+                <Text style={[ov.cardSub, { color: appColors.labelTertiary }]}>
+                  {fmtMoney(totalMonthlyBills)} / month
+                </Text>
+              )}
+            </View>
+            {upcomingBills.map(bill => (
+              <View key={bill.id} style={ov.billRow}>
+                <View style={[ov.billIcon, { backgroundColor: hexToRgba(bill.color, 0.12) }]}>
+                  <Ionicons name={bill.icon as any} size={14} color={bill.color} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[ov.billName, { color: appColors.label }]} numberOfLines={1}>{bill.name}</Text>
+                  <Text style={[ov.billSub, { color: appColors.labelTertiary }]}>
+                    Due {fmtDate(bill.next_due)} · {bill.frequency.charAt(0).toUpperCase() + bill.frequency.slice(1)}
+                  </Text>
+                </View>
+                <Text style={[ov.billAmt, { color: appColors.label }]}>{fmtMoney(bill.amount)}</Text>
+              </View>
+            ))}
           </GlassCard>
         )}
 
@@ -896,6 +1124,25 @@ export default function FinanceScreen() {
           </GlassCard>
         )}
 
+        {/* Top merchants */}
+        {topMerchants.length > 0 && (
+          <GlassCard style={ov.card}>
+            <Text style={[ov.cardTitle, { color: appColors.labelSecondary, marginBottom: spacing.sm }]}>TOP MERCHANTS</Text>
+            {topMerchants.map(m => (
+              <View key={m.payee} style={ov.merchantRow}>
+                <View style={ov.merchantLeft}>
+                  <View style={ov.merchantDot} />
+                  <Text style={[ov.merchantName, { color: appColors.label }]} numberOfLines={1}>{m.payee}</Text>
+                </View>
+                <View style={ov.merchantRight}>
+                  <Text style={[ov.merchantCount, { color: appColors.labelTertiary }]}>{m.count}×</Text>
+                  <Text style={[ov.merchantAmt, { color: appColors.labelSecondary }]}>{fmtMoney(m.total)}</Text>
+                </View>
+              </View>
+            ))}
+          </GlassCard>
+        )}
+
         {/* Recent transactions */}
         <View style={ov.cardHeader2}>
           <Text style={[ov.cardTitle, { color: appColors.labelSecondary }]}>RECENT</Text>
@@ -907,7 +1154,7 @@ export default function FinanceScreen() {
         </View>
         <GlassCard style={ov.card}>
           {transactions.length === 0
-            ? <Text style={[ov.empty, { color: appColors.labelTertiary }]}>No transactions this month</Text>
+            ? <View style={ov.emptyBlock}><Text style={[ov.empty, { color: appColors.labelTertiary }]}>{emptyMsg.title}</Text>{emptyMsg.subtitle ? <Text style={[ov.emptySub, { color: appColors.labelTertiary }]}>{emptyMsg.subtitle}</Text> : null}</View>
             : transactions.slice(0, 5).map(t => <TxnRow key={t.id} txn={t} onPress={() => setSelTxn(t)} />)
           }
         </GlassCard>
@@ -917,15 +1164,16 @@ export default function FinanceScreen() {
 
   // ── Transactions ─────────────────────────────────────────────────────────────
   function TransactionsTab() {
+    const emptyTxnMsg = useEmptyStateMessage(EMPTY_FINANCE_TXN);
     return (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         {/* Uncategorized banner */}
         {uncatCount > 0 && (
           <Pressable onPress={() => setShowUncat(true)}
-            style={[txv.banner, { backgroundColor: hexToRgba('#F59E0B', 0.1), borderColor: hexToRgba('#F59E0B', 0.3) }]}>
-            <Ionicons name="alert-circle-outline" size={15} color="#F59E0B" />
-            <Text style={[txv.bannerText, { color: '#D97706' }]}>{uncatCount} uncategorized — tap to fix</Text>
-            <Ionicons name="chevron-forward" size={14} color="#F59E0B" />
+            style={[txv.banner, { backgroundColor: hexToRgba(appColors.warning, 0.1), borderColor: hexToRgba(appColors.warning, 0.3) }]}>
+            <Ionicons name="alert-circle-outline" size={15} color={appColors.warning} />
+            <Text style={[txv.bannerText, { color: appColors.warning }]}>{uncatCount} uncategorized — tap to fix</Text>
+            <Ionicons name="chevron-forward" size={14} color={appColors.warning} />
           </Pressable>
         )}
 
@@ -941,13 +1189,13 @@ export default function FinanceScreen() {
         </View>
 
         <View style={txv.summaryRow}>
-          <View style={[txv.summaryChip, { backgroundColor: hexToRgba('#22C55E', 0.08) }]}>
-            <Text style={[txv.summaryLabel, { color: '#22C55E' }]}>Income</Text>
-            <Text style={[txv.summaryAmt, { color: '#22C55E' }]}>{fmtMoney(monthIncome)}</Text>
+          <View style={[txv.summaryChip, { backgroundColor: hexToRgba(appColors.success, 0.08) }]}>
+            <Text style={[txv.summaryLabel, { color: appColors.success }]}>Income</Text>
+            <Text style={[txv.summaryAmt, { color: appColors.success }]}>{fmtMoney(monthIncome)}</Text>
           </View>
-          <View style={[txv.summaryChip, { backgroundColor: hexToRgba('#EF4444', 0.08) }]}>
-            <Text style={[txv.summaryLabel, { color: '#EF4444' }]}>Spent</Text>
-            <Text style={[txv.summaryAmt, { color: '#EF4444' }]}>{fmtMoney(monthExpense)}</Text>
+          <View style={[txv.summaryChip, { backgroundColor: hexToRgba(appColors.destructive, 0.08) }]}>
+            <Text style={[txv.summaryLabel, { color: appColors.destructive }]}>Spent</Text>
+            <Text style={[txv.summaryAmt, { color: appColors.destructive }]}>{fmtMoney(monthExpense)}</Text>
           </View>
           <View style={[txv.summaryChip, { backgroundColor: hexToRgba(userColor, 0.08) }]}>
             <Text style={[txv.summaryLabel, { color: userColor }]}>Net</Text>
@@ -957,7 +1205,7 @@ export default function FinanceScreen() {
 
         <GlassCard style={txv.list}>
           {transactions.length === 0
-            ? <View style={txv.empty}><Ionicons name="receipt-outline" size={36} color={appColors.labelTertiary} /><Text style={[txv.emptyText, { color: appColors.labelTertiary }]}>No transactions</Text></View>
+            ? <View style={txv.empty}><Ionicons name="receipt-outline" size={36} color={appColors.labelTertiary} /><Text style={[txv.emptyText, { color: appColors.labelTertiary }]}>{emptyTxnMsg.title}</Text>{emptyTxnMsg.subtitle ? <Text style={[txv.emptySub, { color: appColors.labelTertiary }]}>{emptyTxnMsg.subtitle}</Text> : null}</View>
             : transactions.map(t => <TxnRow key={t.id} txn={t} onPress={() => setSelTxn(t)} />)
           }
         </GlassCard>
@@ -976,10 +1224,40 @@ export default function FinanceScreen() {
     list:       { marginHorizontal: spacing.lg, overflow: 'hidden' },
     empty:      { alignItems: 'center', padding: spacing.xxl, gap: spacing.sm },
     emptyText:  { ...typography.body },
+    emptySub:   { ...typography.footnote, textAlign: 'center', marginTop: spacing.xs },
   });
 
   // ── Budget (Envelope) ─────────────────────────────────────────────────────────
   function BudgetTab() {
+    const [editing, setEditing] = useState<BudgetSummary | null>(null);
+    const [editAmount, setEditAmount] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    function openEdit(b: BudgetSummary) {
+      setEditing(b);
+      setEditAmount(String(Math.max(0, Math.round((b.allocated + b.rollover) * 100) / 100)));
+    }
+
+    function closeEdit() {
+      if (saving) return;
+      setEditing(null);
+    }
+
+    async function handleSave() {
+      if (!editing) return;
+      const n = parseFloat(editAmount.replace(/[^0-9.]/g, ''));
+      if (isNaN(n) || n < 0) return;
+      setSaving(true);
+      try {
+        await upsertBudget(editing.category_id, n);
+        setEditing(null);
+      } catch (e: any) {
+        Alert.alert('Error', e?.message ?? 'Could not update budget.');
+      } finally {
+        setSaving(false);
+      }
+    }
+
     const totalAllocated = budgetSummary.reduce((s, b) => s + b.allocated, 0);
     const totalSpent     = budgetSummary.reduce((s, b) => s + b.spent, 0);
     const remaining      = totalAllocated - totalSpent;
@@ -994,22 +1272,23 @@ export default function FinanceScreen() {
             </View>
             <View style={bv.summaryDivider} />
             <View style={bv.summaryItem}>
-              <Text style={[bv.summaryVal, { color: '#EF4444' }]}>{fmtMoney(totalSpent)}</Text>
+              <Text style={[bv.summaryVal, { color: appColors.destructive }]}>{fmtMoney(totalSpent)}</Text>
               <Text style={[bv.summaryKey, { color: appColors.labelTertiary }]}>Spent</Text>
             </View>
             <View style={bv.summaryDivider} />
             <View style={bv.summaryItem}>
-              <Text style={[bv.summaryVal, { color: remaining >= 0 ? '#22C55E' : '#EF4444' }]}>{fmtMoney(Math.abs(remaining))}</Text>
+              <Text style={[bv.summaryVal, { color: remaining >= 0 ? appColors.success : appColors.destructive }]}>{fmtMoney(Math.abs(remaining))}</Text>
               <Text style={[bv.summaryKey, { color: appColors.labelTertiary }]}>{remaining >= 0 ? 'Left' : 'Over'}</Text>
             </View>
           </View>
           {/* Full-width progress bar */}
           <View style={[bv.totalTrack, { backgroundColor: hexToRgba(userColor, 0.1) }]}>
-            <View style={[bv.totalFill, { width: `${Math.min(100, totalAllocated > 0 ? (totalSpent / totalAllocated) * 100 : 0)}%`, backgroundColor: totalSpent > totalAllocated ? '#EF4444' : userColor }]} />
+            <View style={[bv.totalFill, { width: `${Math.min(100, totalAllocated > 0 ? (totalSpent / totalAllocated) * 100 : 0)}%`, backgroundColor: totalSpent > totalAllocated ? appColors.destructive : userColor }]} />
           </View>
         </GlassCard>
 
         <Text style={[bv.sectionLabel, { color: appColors.labelSecondary }]}>ENVELOPES  ·  {format(month, 'MMM yyyy')}</Text>
+        <Text style={[bv.sectionHint, { color: appColors.labelTertiary }]}>Tap an envelope to adjust its budget.</Text>
 
         {budgetLoading ? (
           <ActivityIndicator color={userColor} style={{ marginTop: spacing.xl }} />
@@ -1025,13 +1304,56 @@ export default function FinanceScreen() {
             {budgetSummary.map((b, i) => (
               <View key={b.category_id}>
                 {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator }} />}
-                <BudgetBar
-                  label={b.category.name} icon={b.category.icon}
-                  color={b.category.color} spent={b.spent} allocated={b.allocated + b.rollover}
-                />
+                <Pressable onPress={() => openEdit(b)} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
+                  <BudgetBar
+                    label={b.category.name} icon={b.category.icon}
+                    color={b.category.color} spent={b.spent} allocated={b.allocated + b.rollover}
+                  />
+                </Pressable>
               </View>
             ))}
           </GlassCard>
+        )}
+
+        {editing && (
+          <Modal visible transparent animationType="slide" onRequestClose={closeEdit}>
+            <Pressable style={sheet.overlay} onPress={closeEdit} />
+            <View style={[sheet.card, { backgroundColor: appColors.surface }]}>
+              <View style={sheet.handle} />
+              <Text style={[sheet.title, { color: appColors.label }]}>Edit budget</Text>
+              <View style={{ alignItems: 'center', marginBottom: spacing.md }}>
+                <Text style={[bv.editName, { color: appColors.label }]} numberOfLines={1}>
+                  {editing.category.name}
+                </Text>
+                <Text style={[bv.editMeta, { color: appColors.labelTertiary }]}>
+                  Spent {fmtMoney(editing.spent)} · Previous {fmtMoney(editing.allocated + editing.rollover)}
+                </Text>
+              </View>
+              <View style={[sheet.inputRow, { borderColor: hexToRgba(userColor, 0.3), marginBottom: spacing.md }]}>
+                <Text style={{ marginRight: 4, color: appColors.labelTertiary }}>$</Text>
+                <RNTextInput
+                  value={editAmount}
+                  onChangeText={setEditAmount}
+                  placeholder="0.00"
+                  placeholderTextColor={appColors.labelTertiary}
+                  keyboardType="decimal-pad"
+                  style={[sheet.inputText, { color: appColors.label }]}
+                />
+              </View>
+              <View style={sheet.actionRow}>
+                <Pressable onPress={closeEdit} disabled={saving} style={[sheet.btn, { backgroundColor: 'rgba(0,0,0,0.06)' }]}>
+                  <Text style={[sheet.btnText, { color: appColors.labelSecondary }]}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={handleSave}
+                  disabled={saving}
+                  style={[sheet.btn, { backgroundColor: hexToRgba(userColor, 0.12), opacity: saving ? 0.5 : 1 }]}
+                >
+                  <Text style={[sheet.btnText, { color: userColor }]}>{saving ? 'Saving…' : 'Save'}</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Modal>
         )}
       </ScrollView>
     );
@@ -1046,7 +1368,10 @@ export default function FinanceScreen() {
     totalTrack:    { height: 6, borderRadius: 3, overflow: 'hidden' },
     totalFill:     { height: '100%', borderRadius: 3 },
     sectionLabel:  { ...typography.caption, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginHorizontal: spacing.lg, marginBottom: spacing.sm },
+    sectionHint:   { ...typography.footnote, marginHorizontal: spacing.lg, marginBottom: spacing.xs },
     envelopesCard: { marginHorizontal: spacing.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
+    editName:      { ...typography.title3, textAlign: 'center', marginBottom: 2 },
+    editMeta:      { ...typography.caption, textAlign: 'center' },
   });
 
   // ── Accounts ─────────────────────────────────────────────────────────────────
@@ -1069,7 +1394,13 @@ export default function FinanceScreen() {
               return (
                 <View key={a.id}>
                   {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.separator }} />}
-                  <View style={av.row}>
+                  <Pressable
+                    onPress={() => {
+                      setEditingAccount(a);
+                      setShowAccountSheet(true);
+                    }}
+                    style={({ pressed }) => [av.row, { opacity: pressed ? 0.7 : 1 }]}
+                  >
                     <View style={[av.icon, { backgroundColor: hexToRgba(a.color, 0.12) }]}>
                       <Ionicons name={(a.icon || 'wallet-outline') as any} size={18} color={a.color} />
                     </View>
@@ -1082,7 +1413,7 @@ export default function FinanceScreen() {
                     <Text style={[av.bal, { color: isCredit ? '#EF4444' : a.color }]}>
                       {isCredit ? '-' : ''}{fmtMoney(Math.abs(a.balance))}
                     </Text>
-                  </View>
+                  </Pressable>
                 </View>
               );
             })}
@@ -1092,11 +1423,24 @@ export default function FinanceScreen() {
     }
     return (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100, paddingTop: spacing.md }}>
-        {/* Net worth hero */}
+        {/* Net worth hero + add account */}
         <GlassCard style={[av.nwCard, { borderColor: hexToRgba(userColor, 0.25) }]}>
           <LinearGradient colors={[hexToRgba(userColor, 0.06), 'transparent']} style={StyleSheet.absoluteFill} />
-          <Text style={[av.nwLabel, { color: appColors.labelSecondary }]}>Net Worth</Text>
-          <Text style={[av.nwVal, { color: netWorth >= 0 ? userColor : '#EF4444' }]}>{fmtMoney(netWorth)}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View>
+              <Text style={[av.nwLabel, { color: appColors.labelSecondary }]}>Net Worth</Text>
+              <Text style={[av.nwVal, { color: netWorth >= 0 ? userColor : '#EF4444' }]}>
+                {fmtMoney(netWorth)}
+              </Text>
+            </View>
+            <Button
+              title="Add account"
+              onPress={() => { setEditingAccount(null); setShowAccountSheet(true); }}
+              variant="tinted"
+              size="sm"
+              color={userColor}
+            />
+          </View>
         </GlassCard>
         <Group title="Cash & Savings" items={checking} />
         <Group title="Credit Cards"   items={credit} />
@@ -1125,6 +1469,262 @@ export default function FinanceScreen() {
     bal:        { fontSize: 15, fontWeight: '800' },
   });
 
+// ─── AccountSheet ────────────────────────────────────────────────────────────────
+
+function AccountSheet({
+  visible,
+  onClose,
+  initial,
+  onCreate,
+  onUpdate,
+  userColor,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  initial: FinanceAccount | null;
+  onCreate: (payload: Pick<FinanceAccount, 'name' | 'type' | 'balance' | 'color' | 'icon'>) => Promise<void>;
+  onUpdate: (
+    id: string,
+    patch: Partial<Pick<FinanceAccount, 'name' | 'type' | 'balance' | 'color' | 'icon'>>,
+  ) => Promise<void>;
+  userColor: string;
+}) {
+  const appColors = useAppColors();
+  const [name, setName] = useState(initial?.name ?? '');
+  const [type, setType] = useState<FinanceAccount['type']>(initial?.type ?? 'checking');
+  const [balance, setBalance] = useState(
+    initial ? String(Math.round(initial.balance * 100) / 100) : '',
+  );
+  const [color, setColor] = useState(initial?.color ?? userColor);
+  const [icon, setIcon] = useState(initial?.icon ?? 'card-outline');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setName(initial?.name ?? '');
+      setType(initial?.type ?? 'checking');
+      setBalance(initial ? String(Math.round(initial.balance * 100) / 100) : '');
+      setColor(initial?.color ?? userColor);
+      setIcon(initial?.icon ?? 'card-outline');
+      setSaving(false);
+    }
+  }, [visible, initial, userColor]);
+
+  const ACCOUNT_TYPES: { key: FinanceAccount['type']; label: string }[] = [
+    { key: 'checking', label: 'Checking' },
+    { key: 'savings', label: 'Savings' },
+    { key: 'cash', label: 'Cash' },
+    { key: 'credit', label: 'Credit' },
+    { key: 'investment', label: 'Invest' },
+  ];
+
+  const COLOR_OPTIONS = [
+    '#22C55E',
+    '#3B82F6',
+    '#F97316',
+    '#A855F7',
+    '#14B8A6',
+  ];
+
+  const ICON_OPTIONS = [
+    'card-outline',
+    'wallet-outline',
+    'cash-outline',
+    'briefcase-outline',
+    'trending-up-outline',
+  ];
+
+  async function handleSave() {
+    const trimmed = name.trim();
+    const n = parseFloat(balance.replace(/[^0-9.]/g, ''));
+    if (!trimmed || isNaN(n)) return;
+    setSaving(true);
+    try {
+      if (initial) {
+        await onUpdate(initial.id, {
+          name: trimmed,
+          type,
+          balance: n,
+          color,
+          icon,
+        });
+      } else {
+        await onCreate({
+          name: trimmed,
+          type,
+          balance: n,
+          color,
+          icon,
+        });
+      }
+      onClose();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Could not save account.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Sheet visible={visible} onClose={onClose} heightFraction={0.78}>
+      <Text style={[sheet.title, { color: appColors.label }]}>
+        {initial ? 'Edit account' : 'Add account'}
+      </Text>
+
+      {/* Name */}
+      <View style={[sheet.inputRow, { borderColor: hexToRgba(userColor, 0.28) }]}>
+        <RNTextInput
+          value={name}
+          onChangeText={setName}
+          placeholder="Account name (e.g. Chase Checking)"
+          placeholderTextColor={appColors.labelTertiary}
+          style={[sheet.inputText, { color: appColors.label }]}
+          returnKeyType="next"
+        />
+      </View>
+
+      {/* Type */}
+      <Text style={[sheet.label, { color: appColors.labelTertiary }]}>Type</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ marginBottom: spacing.md }}
+      >
+        <View style={{ flexDirection: 'row', gap: 6, paddingRight: 4 }}>
+          {ACCOUNT_TYPES.map(t => {
+            const selected = t.key === type;
+            return (
+              <Pressable
+                key={t.key}
+                onPress={() => setType(t.key)}
+                style={[
+                  add.chip,
+                  selected && {
+                    backgroundColor: hexToRgba(userColor, 0.12),
+                    borderColor: userColor,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    add.chipText,
+                    { color: selected ? userColor : appColors.labelSecondary },
+                  ]}
+                >
+                  {t.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </ScrollView>
+
+      {/* Starting balance */}
+      <Text style={[sheet.label, { color: appColors.labelTertiary }]}>Current balance</Text>
+      <View style={[add.amtWrap, { borderColor: hexToRgba(userColor, 0.35), marginBottom: spacing.md }]}>
+        <Text style={[add.amtPrefix, { color: appColors.labelTertiary }]}>$</Text>
+        <RNTextInput
+          value={balance}
+          onChangeText={setBalance}
+          placeholder="0.00"
+          placeholderTextColor={appColors.labelTertiary}
+          keyboardType="decimal-pad"
+          style={[add.amtInput, { color: appColors.label, fontSize: 22 }]}
+        />
+      </View>
+
+      {/* Color */}
+      <Text style={[sheet.label, { color: appColors.labelTertiary }]}>Color</Text>
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
+        {COLOR_OPTIONS.map(c => {
+          const selected = c === color;
+          return (
+            <Pressable
+              key={c}
+              onPress={() => setColor(c)}
+              style={[
+                {
+                  width: 26,
+                  height: 26,
+                  borderRadius: 13,
+                  backgroundColor: c,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                },
+                selected && {
+                  borderWidth: 2,
+                  borderColor: appColors.surface,
+                  shadowColor: '#000',
+                  shadowOpacity: 0.15,
+                  shadowRadius: 6,
+                },
+              ]}
+            >
+              {selected && (
+                <Ionicons name="checkmark" size={14} color="#fff" />
+              )}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Icon */}
+      <Text style={[sheet.label, { color: appColors.labelTertiary }]}>Icon</Text>
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
+        {ICON_OPTIONS.map(i => {
+          const selected = i === icon;
+          return (
+            <Pressable
+              key={i}
+              onPress={() => setIcon(i)}
+              style={[
+                add.chip,
+                {
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderColor: selected ? userColor : 'rgba(0,0,0,0.08)',
+                  backgroundColor: selected ? hexToRgba(userColor, 0.1) : 'transparent',
+                },
+              ]}
+            >
+              <Ionicons
+                name={i as any}
+                size={16}
+                color={selected ? userColor : appColors.labelSecondary}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={sheet.actionRow}>
+        <Pressable
+          onPress={onClose}
+          disabled={saving}
+          style={[sheet.btn, { backgroundColor: 'rgba(0,0,0,0.04)' }]}
+        >
+          <Text style={[sheet.btnText, { color: appColors.labelSecondary }]}>Cancel</Text>
+        </Pressable>
+        <Pressable
+          onPress={handleSave}
+          disabled={saving || !name.trim() || !balance.trim()}
+          style={[
+            sheet.btn,
+            {
+              backgroundColor: hexToRgba(userColor, 0.14),
+              opacity: saving || !name.trim() || !balance.trim() ? 0.5 : 1,
+            },
+          ]}
+        >
+          <Text style={[sheet.btnText, { color: userColor }]}>
+            {saving ? 'Saving…' : initial ? 'Save changes' : 'Create'}
+          </Text>
+        </Pressable>
+      </View>
+    </Sheet>
+  );
+}
+
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[s.safe, { backgroundColor: appColors.surface }]} edges={['top']}>
@@ -1137,6 +1737,7 @@ export default function FinanceScreen() {
           <View>
             <Text style={[s.headerTitle, { color: appColors.label }]}>Finance</Text>
             <Text style={[s.headerSub, { color: appColors.labelTertiary }]}>{format(month, 'MMMM yyyy')}</Text>
+            <Text style={[s.headerComfort, { color: appColors.labelQuaternary }]}>{getComfortLineForTab('finance', todayStr())}</Text>
           </View>
         </View>
         <View style={s.headerRight}>
@@ -1169,6 +1770,14 @@ export default function FinanceScreen() {
       <UncategorizedModal visible={showUncat} transactions={transactions} categories={categories} onClose={() => setShowUncat(false)} onCategorize={handleCategorize} />
       <AddTransactionModal visible={showAdd} onClose={() => setShowAdd(false)} onAdd={addTransaction} accounts={accounts} categories={categories} userColor={userColor} />
       <CSVImportModal visible={showCSV} onClose={() => setShowCSV(false)} accounts={accounts} categories={categories} userId={userId} userColor={userColor} onImported={refreshTxns} />
+      <AccountSheet
+        visible={showAccountSheet}
+        onClose={() => setShowAccountSheet(false)}
+        initial={editingAccount}
+        onCreate={async payload => { await createAccount(payload); }}
+        onUpdate={async (id, patch) => { await updateAccount(id, patch); }}
+        userColor={userColor}
+      />
     </SafeAreaView>
   );
 }
@@ -1195,7 +1804,29 @@ const ov = StyleSheet.create({
   catName:    { flex: 1, fontSize: 13, fontWeight: '600' },
   catAmt:     { fontSize: 13, fontWeight: '700' },
   seeAll:     { ...typography.subhead },
-  empty:      { ...typography.body, textAlign: 'center', padding: spacing.xl },
+  emptyBlock: { alignItems: 'center', padding: spacing.xl },
+  empty:      { ...typography.body, textAlign: 'center' },
+  emptySub:   { ...typography.footnote, textAlign: 'center', marginTop: spacing.xs },
+  budgetRow:   { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md, marginBottom: spacing.sm },
+  budgetItem:  { flex: 1, minWidth: 0 },
+  budgetValue: { fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+  budgetLabel: { ...typography.caption, marginTop: 2 },
+  budgetTrack: { height: 6, borderRadius: 3, overflow: 'hidden', marginTop: spacing.sm },
+  budgetFill:  { height: '100%', borderRadius: 3 },
+  budgetPace:  { ...typography.footnote, marginTop: spacing.sm },
+  heatHint:    { ...typography.footnote, marginTop: spacing.sm },
+  billRow:     { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 6 },
+  billIcon:    { width: 26, height: 26, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
+  billName:    { fontSize: 13, fontWeight: '600' },
+  billSub:     { ...typography.caption, marginTop: 1 },
+  billAmt:     { fontSize: 13, fontWeight: '700' },
+  merchantRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, gap: spacing.sm },
+  merchantLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1, minWidth: 0 },
+  merchantDot:  { width: 6, height: 6, borderRadius: 3, backgroundColor: '#A1A1AA' },
+  merchantName: { fontSize: 13, fontWeight: '600', flex: 1 },
+  merchantRight:{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  merchantCount:{ ...typography.caption },
+  merchantAmt:  { fontSize: 13, fontWeight: '700' },
 });
 
 const s = StyleSheet.create({
@@ -1208,6 +1839,7 @@ const s = StyleSheet.create({
   badge:       { width: 36, height: 36, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 17, fontWeight: '700' },
   headerSub:   { ...typography.caption, marginTop: 1 },
+  headerComfort: { ...typography.caption, fontStyle: 'italic', marginTop: 2 },
   iconBtn:     { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   addBtn:      { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: spacing.sm + 2, paddingVertical: 6, borderRadius: radius.full },
   addBtnText:  { fontSize: 13, fontWeight: '700', color: '#fff' },

@@ -70,6 +70,14 @@ export function useEvents() {
     [events, rules],
   );
 
+  const deleteEventAndRefresh = useCallback(
+    async (id: string) => {
+      await deleteEvent(id);
+      await load();
+    },
+    [load]
+  );
+
   return {
     events,
     rules,
@@ -80,7 +88,7 @@ export function useEvents() {
     createEvent,
     createEventWithRecurrence,
     updateEvent,
-    deleteEvent,
+    deleteEvent: deleteEventAndRefresh,
     bulkInsertEvents,
   };
 }

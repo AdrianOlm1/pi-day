@@ -8,31 +8,41 @@ function todayStr(): string {
 }
 
 function normalizeGoal(row: any): Goal {
+  const sub = row.sub_objectives;
+  const dueDate = row.due_date;
+  const targetEnd = row.target_end_date;
   return {
     ...row,
-    emoji:           row.emoji           ?? '',
-    stake:           row.stake           ?? null,
-    active_days:     row.active_days     ?? null,
-    metric_target:   row.metric_target   ?? null,
-    metric_unit:     row.metric_unit     ?? null,
-    current_streak:  row.current_streak  ?? 0,
-    longest_streak:  row.longest_streak  ?? 0,
-    last_checked_in: row.last_checked_in ?? null,
+    emoji:             row.emoji             ?? '',
+    stake:             row.stake             ?? null,
+    active_days:       row.active_days       ?? null,
+    metric_target:     row.metric_target     ?? null,
+    metric_unit:       row.metric_unit       ?? null,
+    repeating:         row.repeating !== false,
+    sub_objectives:    Array.isArray(sub) ? sub : (sub != null ? [].concat(sub) : null),
+    due_date:          dueDate != null ? (typeof dueDate === 'string' ? dueDate.slice(0, 10) : dueDate) : null,
+    due_time:          row.due_time ?? null,
+    target_end_date:   targetEnd != null ? (typeof targetEnd === 'string' ? targetEnd.slice(0, 10) : targetEnd) : null,
+    target_description: row.target_description ?? null,
+    current_streak:    row.current_streak    ?? 0,
+    longest_streak:    row.longest_streak    ?? 0,
+    last_checked_in:   row.last_checked_in   ?? null,
   };
 }
 
 // ─── period key (exported for metric logging) ───────────────────────────────
 
-/** Get the period key for a date (daily = YYYY-MM-DD, weekly = Monday, monthly = YYYY-MM-01). */
+/** Get the period key for a date (daily/long_term = YYYY-MM-DD, weekly = Monday, monthly = YYYY-MM-01, yearly = YYYY-01-01). */
 export function getPeriodKey(d: Date, period: GoalPeriodType): string {
-  if (period === 'daily') return d.toISOString().slice(0, 10);
+  if (period === 'daily' || period === 'long_term') return d.toISOString().slice(0, 10);
   if (period === 'weekly') {
     const dow = d.getDay(); // 0=Sun
     const mon = new Date(d);
     mon.setDate(d.getDate() - ((dow + 6) % 7));
     return mon.toISOString().slice(0, 10);
   }
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  if (period === 'monthly') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  return `${d.getFullYear()}-01-01`;
 }
 
 // ─── streak math (pure, exported for tests) ───────────────────────────────────
@@ -53,9 +63,10 @@ export function calcStreak(dates: string[], period: GoalPeriodType): number {
 
   const prevPeriod = (d: Date): Date => {
     const r = new Date(d);
-    if (period === 'daily')  r.setDate(d.getDate() - 1);
+    if (period === 'daily' || period === 'long_term') r.setDate(d.getDate() - 1);
     else if (period === 'weekly') r.setDate(d.getDate() - 7);
-    else r.setMonth(d.getMonth() - 1);
+    else if (period === 'monthly') r.setMonth(d.getMonth() - 1);
+    else r.setFullYear(d.getFullYear() - 1);
     return r;
   };
 
@@ -118,17 +129,23 @@ export async function createGoal(
   const { data, error } = await supabase
     .from('goals')
     .insert({
-      owner:            goal.owner,
-      title:            goal.title,
-      period_type:      goal.period_type,
-      reminder_enabled: goal.reminder_enabled,
-      emoji:            goal.emoji ?? '',
-      stake:            goal.stake ?? null,
-      active_days:      goal.active_days ?? null,
-      metric_target:    goal.metric_target ?? null,
-      metric_unit:      goal.metric_unit ?? null,
-      current_streak:   0,
-      longest_streak:   0,
+      owner:              goal.owner,
+      title:              goal.title,
+      period_type:        goal.period_type,
+      reminder_enabled:   goal.reminder_enabled,
+      repeating:          goal.repeating !== false,
+      emoji:              goal.emoji ?? '',
+      stake:              goal.stake ?? null,
+      active_days:        goal.active_days ?? null,
+      metric_target:      goal.metric_target ?? null,
+      metric_unit:        goal.metric_unit ?? null,
+      sub_objectives:     goal.sub_objectives ?? null,
+      due_date:           goal.due_date ?? null,
+      due_time:           goal.due_time ?? null,
+      target_end_date:    goal.target_end_date ?? null,
+      target_description: goal.target_description ?? null,
+      current_streak:     0,
+      longest_streak:     0,
     })
     .select()
     .single();

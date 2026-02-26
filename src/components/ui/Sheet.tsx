@@ -23,10 +23,15 @@ interface SheetProps {
   onClose: () => void;
   children: React.ReactNode;
   heightFraction?: number;
+  /** When false, children are not wrapped in ScrollView (use when content has its own scroll) */
+  scrollable?: boolean;
+  /** Optional background color for the sheet (default: appColors.surface) */
+  backgroundColor?: string;
 }
 
-export function Sheet({ visible, onClose, children, heightFraction = 0.6 }: SheetProps) {
+export function Sheet({ visible, onClose, children, heightFraction = 0.6, scrollable = true, backgroundColor }: SheetProps) {
   const appColors = useAppColors();
+  const sheetBg = backgroundColor ?? appColors.surface;
   const translateY = useRef(new Animated.Value(SCREEN_H)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const dragOffset = useRef(new Animated.Value(0)).current;
@@ -82,15 +87,21 @@ export function Sheet({ visible, onClose, children, heightFraction = 0.6 }: Shee
       <Animated.View style={[styles.sheet, {
         height: SCREEN_H * heightFraction,
         transform: sheetTransform,
-        backgroundColor: appColors.surface,
+        backgroundColor: sheetBg,
       }]}>
         <View style={styles.handleBar} {...panResponder.panHandlers}>
-          <View style={[styles.handle, { backgroundColor: appColors.fill }]} />
+          <View style={[styles.handle, { backgroundColor: sheetBg === '#FFFFFF' ? 'rgba(0,0,0,0.12)' : appColors.fill }]} />
         </View>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            {children}
-          </ScrollView>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex1}>
+          {scrollable ? (
+            <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              {children}
+            </ScrollView>
+          ) : (
+            <View style={styles.contentWrap}>
+              {children}
+            </View>
+          )}
         </KeyboardAvoidingView>
       </Animated.View>
     </Modal>
@@ -105,7 +116,9 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.12, shadowRadius: 24, elevation: 20,
   },
+  flex1: { flex: 1 },
   handleBar: { alignItems: 'center', paddingTop: 12, paddingBottom: 6 },
   handle: { width: 32, height: 4, borderRadius: 2 },
   content: { padding: 24, paddingBottom: 52 },
+  contentWrap: { flex: 1 },
 });

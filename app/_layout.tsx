@@ -11,11 +11,12 @@ import { AutoDeleteCleanup } from '@/components/settings/AutoDeleteCleanup';
 import { registerForPushNotifications } from '@/services/notifications';
 import { playNotification } from '@/utils/sounds';
 import PairingScreen from '@/components/pairing/PairingScreen';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, useColorScheme } from 'react-native';
 
 // ─── Inner layout — rendered inside PairingProvider + UserModeProvider ────────
 function AppLayout() {
   const { state } = usePairing();
+  const colorScheme = useColorScheme();
 
   useEffect(() => {
     registerForPushNotifications();
@@ -46,7 +47,7 @@ function AppLayout() {
   return (
     <>
       <AutoDeleteCleanup />
-      <StatusBar style="auto" />
+      <StatusBar style={colorScheme === 'dark' ? 'dark' : 'auto'} />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
       </Stack>

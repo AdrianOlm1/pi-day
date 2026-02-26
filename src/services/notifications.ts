@@ -30,22 +30,29 @@ Notifications.setNotificationHandler({
 const COPY = {
   dailyTodo: {
     title: "Today's list",
-    body: "Your tasks are waiting. Tap to view.",
+    body: "Your daily goals are waiting. Tap to view.",
   },
-  goalReminder: (period: 'daily' | 'weekly' | 'monthly', title: string) => {
-    const periodLabel = period === 'daily' ? 'Time to log' : period === 'weekly' ? 'Weekly check-in' : 'Monthly check-in';
+  goalReminder: (period: 'daily' | 'weekly' | 'monthly' | 'yearly', title: string) => {
+    const periodLabel = period === 'daily' ? 'Time to log' : period === 'weekly' ? 'Weekly check-in' : period === 'monthly' ? 'Monthly check-in' : 'Yearly check-in';
     return { title: periodLabel, body: title };
   },
   partnerGoalReminder: (partnerName: string, title: string) => ({
     title: "Partner goal",
     body: `${partnerName}'s goal: ${title}. Tap to check in together.`,
   }),
-  goalStreak: (streak: number, title: string, period: 'daily' | 'weekly' | 'monthly') => {
-    const unit = period === 'daily' ? 'day' : period === 'weekly' ? 'week' : 'month';
+  goalStreak: (streak: number, title: string, period: 'daily' | 'weekly' | 'monthly' | 'yearly') => {
+    const unit = period === 'daily' ? 'day' : period === 'weekly' ? 'week' : period === 'monthly' ? 'month' : 'year';
     return {
       title: "Streak",
       body: `You're on a ${streak}-${unit} streak for ${title}. Log this period to keep it going.`,
     };
+  },
+  goalEncourage: (completedToday: number, totalGoals: number) => {
+    if (completedToday >= totalGoals && totalGoals > 0)
+      return { title: "All done!", body: "You completed all your goals today. Amazing!" };
+    if (completedToday > 0)
+      return { title: "Nice progress!", body: `${completedToday} goal${completedToday !== 1 ? 's' : ''} done today. Keep it up!` };
+    return { title: "You've got this!", body: "Small steps lead to big wins. Tap to log a goal." };
   },
   eventUpcoming: (title: string, timeLabel: string) => ({
     title: "Up next",
@@ -147,7 +154,7 @@ function parseHourMinute(hourMinute: string): { hour: number; minute: number } {
 export async function scheduleGoalReminder(
   goalId: string,
   title: string,
-  periodType: 'daily' | 'weekly' | 'monthly',
+  periodType: 'daily' | 'weekly' | 'monthly' | 'yearly',
   hourMinute: string,
 ): Promise<void> {
   await cancelGoalReminder(goalId);
@@ -167,11 +174,22 @@ export async function scheduleGoalReminder(
       content: { title: t, body, sound: true },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.WEEKLY, weekday: 2, hour, minute },
     });
-  } else {
+  } else if (periodType === 'monthly') {
     await Notifications.scheduleNotificationAsync({
       identifier: id,
       content: { title: t, body, sound: true },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.MONTHLY, day: 1, hour, minute },
+    });
+  } else {
+    // Yearly: schedule for Jan 1 at user's reminder time
+    const jan1 = new Date();
+    jan1.setMonth(0, 1);
+    jan1.setHours(hour, minute, 0, 0);
+    if (jan1.getTime() <= Date.now()) jan1.setFullYear(jan1.getFullYear() + 1);
+    await Notifications.scheduleNotificationAsync({
+      identifier: id,
+      content: { title: t, body, sound: true },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: jan1 },
     });
   }
 }
@@ -181,7 +199,7 @@ export async function cancelGoalReminder(goalId: string): Promise<void> {
 }
 
 export async function rescheduleAllGoalReminders(
-  goals: { id: string; title: string; period_type: 'daily' | 'weekly' | 'monthly'; reminder_enabled: boolean }[],
+  goals: { id: string; title: string; period_type: 'daily' | 'weekly' | 'monthly' | 'yearly'; reminder_enabled: boolean }[],
   hourMinute: string,
 ): Promise<void> {
   for (const g of goals) {
@@ -196,7 +214,7 @@ export async function rescheduleAllGoalReminders(
 // ─── Partner goal reminders ───────────────────────────────────────────────────
 
 export async function schedulePartnerGoalReminders(
-  partnerGoals: { id: string; title: string; period_type: 'daily' | 'weekly' | 'monthly'; reminder_enabled?: boolean }[],
+  partnerGoals: { id: string; title: string; period_type: 'daily' | 'weekly' | 'monthly' | 'yearly'; reminder_enabled?: boolean }[],
   partnerName: string,
   hourMinute: string,
 ): Promise<void> {
@@ -217,11 +235,21 @@ export async function schedulePartnerGoalReminders(
         content: { title: t, body, sound: true },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.WEEKLY, weekday: 2, hour, minute },
       });
-    } else {
+    } else if (g.period_type === 'monthly') {
       await Notifications.scheduleNotificationAsync({
         identifier: id,
         content: { title: t, body, sound: true },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.MONTHLY, day: 1, hour, minute },
+      });
+    } else {
+      const jan1 = new Date();
+      jan1.setMonth(0, 1);
+      jan1.setHours(hour, minute, 0, 0);
+      if (jan1.getTime() <= Date.now()) jan1.setFullYear(jan1.getFullYear() + 1);
+      await Notifications.scheduleNotificationAsync({
+        identifier: id,
+        content: { title: t, body, sound: true },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: jan1 },
       });
     }
   }
@@ -234,7 +262,7 @@ export async function cancelPartnerGoalReminder(goalId: string): Promise<void> {
 // ─── Goal streak nudge (daily, for goals with current_streak > 0 not yet done today) ─────
 
 export async function scheduleGoalStreakReminders(
-  goals: { id: string; title: string; current_streak: number; period_type: 'daily' | 'weekly' | 'monthly' }[],
+  goals: { id: string; title: string; current_streak: number; period_type: 'daily' | 'weekly' | 'monthly' | 'yearly' }[],
   hourMinute: string,
 ): Promise<void> {
   const { hour, minute } = parseHourMinute(hourMinute);
@@ -248,6 +276,30 @@ export async function scheduleGoalStreakReminders(
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute },
     });
   }
+}
+
+// ─── Encouragement notification (optional afternoon nudge) ─────────────────────
+
+const PREFIX_ENCOURAGE = 'goal-encourage-';
+
+export async function scheduleEncouragementNotification(
+  completedToday: number,
+  totalGoals: number,
+  hourMinute: string,
+): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(PREFIX_ENCOURAGE);
+  const { hour, minute } = parseHourMinute(hourMinute);
+  const offsetHour = (hour + 6) % 24; // 6 hours after reminder time (e.g. 9 → 15:00)
+  const { title: t, body } = COPY.goalEncourage(completedToday, totalGoals);
+  await Notifications.scheduleNotificationAsync({
+    identifier: PREFIX_ENCOURAGE,
+    content: { title: t, body, sound: true },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: offsetHour, minute },
+  });
+}
+
+export async function cancelEncouragementNotification(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(PREFIX_ENCOURAGE);
 }
 
 export async function cancelGoalStreakReminder(goalId: string): Promise<void> {

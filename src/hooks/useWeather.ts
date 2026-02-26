@@ -37,7 +37,9 @@ export function useWeather(): WeatherState & { refresh: () => void } {
       const data = await res.json();
       const cur = data?.current;
       if (cur != null) {
-        setTemp(cur.temperature_2m ?? null);
+        const raw = cur.temperature_2m;
+        const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+        setTemp(value != null ? Math.round(value) : null);
         setWeatherCode(cur.weather_code ?? null);
       }
       setError(null);
@@ -50,23 +52,33 @@ export function useWeather(): WeatherState & { refresh: () => void } {
     }
   }, []);
 
+  /** Fallback coordinates (e.g. NYC) when IP geolocation fails so weather still loads. */
+  const FALLBACK_LAT = 40.7128;
+  const FALLBACK_LON = -74.006;
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
+    let lat: number;
+    let lon: number;
     try {
       const ipRes = await fetch(IP_API);
       if (!ipRes.ok) throw new Error('Location unavailable');
       const ipData = await ipRes.json();
-      const lat = ipData?.latitude;
-      const lon = ipData?.longitude;
-      if (typeof lat !== 'number' || typeof lon !== 'number') {
-        throw new Error('Location unavailable');
+      const latFromIp = ipData?.latitude;
+      const lonFromIp = ipData?.longitude;
+      if (typeof latFromIp === 'number' && typeof lonFromIp === 'number') {
+        lat = latFromIp;
+        lon = lonFromIp;
+      } else {
+        lat = FALLBACK_LAT;
+        lon = FALLBACK_LON;
       }
-      await fetchWeather(lat, lon);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Weather unavailable');
-      setLoading(false);
+    } catch {
+      lat = FALLBACK_LAT;
+      lon = FALLBACK_LON;
     }
+    await fetchWeather(lat, lon);
   }, [fetchWeather]);
 
   useEffect(() => {

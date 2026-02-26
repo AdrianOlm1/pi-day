@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/Button';
 import { DatePickerCalendar } from '@/components/calendar/DatePickerCalendar';
 import type { Order, OrderStatus } from '@/types';
 import { spacing, typography, colors, radius } from '@/theme';
-
 interface OrderFormProps {
   initial?: Partial<Order>;
   onSave: (data: Omit<Order, 'id' | 'created_at' | 'updated_at'>) => Promise<void>;
@@ -17,9 +16,7 @@ interface OrderFormProps {
 }
 
 const STATUSES: { value: OrderStatus; icon: string; color: string }[] = [
-  { value: 'Pending',     icon: 'time-outline',              color: '#F59E0B' },
-  { value: 'In Progress', icon: 'hammer-outline',            color: '#3B82F6' },
-  { value: 'Complete',    icon: 'checkmark-circle-outline',  color: '#22C55E' },
+  { value: 'In Progress', icon: 'hammer-outline', color: '#3B82F6' },
 ];
 
 export function OrderForm({ initial, onSave, onCancel, accentColor = '#6366F1' }: OrderFormProps) {
@@ -27,7 +24,7 @@ export function OrderForm({ initial, onSave, onCancel, accentColor = '#6366F1' }
   const [description, setDescription] = useState(initial?.description ?? '');
   const [designNotes, setDesignNotes] = useState(initial?.design_notes ?? '');
   const [total, setTotal]             = useState(initial?.total != null ? String(initial.total) : '');
-  const [status, setStatus]           = useState<OrderStatus>(initial?.status ?? 'Pending');
+  const [status, setStatus]           = useState<OrderStatus>(initial?.status ?? 'In Progress');
   const [dueDate, setDueDate] = useState<Date | null>(() => {
     const d = initial?.due_date?.trim();
     if (!d) return null;

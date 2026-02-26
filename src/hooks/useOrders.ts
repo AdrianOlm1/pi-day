@@ -8,7 +8,7 @@ import {
   updateOrderStatus,
   archiveOrder as archiveOrderService,
 } from '../services/orders';
-import { playOrderArchive, playOrderPending, playOrderComplete, playTrash } from '../utils/sounds';
+import { playOrderComplete, playOrderInProgress, playTrash } from '../utils/sounds';
 import type { Order, OrderStatus } from '../types';
 
 export function useOrders() {
@@ -63,8 +63,6 @@ export function useOrders() {
   const changeStatus = useCallback(async (id: string, status: OrderStatus) => {
     await updateOrderStatus(id, status);
     await load();
-    if (status === 'In Progress') playOrderPending();
-    else if (status === 'Complete') playOrderComplete();
   }, [load]);
 
   const remove = useCallback(async (id: string) => {
@@ -76,7 +74,7 @@ export function useOrders() {
   const archiveOrder = useCallback(async (id: string) => {
     await archiveOrderService(id);
     await load();
-    playOrderArchive();
+    playOrderComplete();
   }, [load]);
 
   const ordersByStatus = (status: OrderStatus) =>

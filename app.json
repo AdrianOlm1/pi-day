@@ -5,9 +5,9 @@
     "version": "1.0.1",
     "scheme": "pidayapp",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "icon": "./assets/image/icon.png",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -17,6 +17,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.adrianandsarah.pidayapp",
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Used to take photos of work schedules for import.",
         "NSPhotoLibraryUsageDescription": "Used to select photos of work schedules for import.",
         "NSUserNotificationsUsageDescription": "Used to send daily to-do reminders."

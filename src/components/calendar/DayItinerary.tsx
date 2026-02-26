@@ -1,14 +1,19 @@
-import React, { useMemo } from 'react';
-import { View, StyleSheet, Pressable, ScrollView } from 'react-native';
-import { ScaledText as Text } from '@/components/ui/ScaledText';
+import React, { useMemo, useCallback, useEffect, useState } from 'react';
+import { View, StyleSheet, Pressable } from 'react-native';
+import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { ScaledText as Text } from '@/components/ui/ScaledText';
 import { format } from 'date-fns';
 import { formatTime } from '@/utils/date';
 import { useCategories } from '@/hooks/useCategories';
+import { useEmptyStateMessage } from '@/hooks/useEmptyStateMessage';
+import { EMPTY_DAY_ITINERARY } from '@/utils/emptyStateMessages';
 import type { EventOccurrence, UserId } from '@/types';
 import { USER_COLORS } from '@/utils/colors';
 import { typography, radius, spacing, shadows } from '@/theme';
 import { useAppColors } from '@/contexts/ThemeContext';
+import { hapticLight, hapticMedium } from '@/utils/haptics';
 
 const USER_DISPLAY_NAMES: Record<UserId, string> = {
   adrian: "Adrian's",
@@ -54,17 +59,24 @@ function sortEvents(events: EventOccurrence[]): EventOccurrence[] {
 interface EventBlockProps {
   ev: EventOccurrence;
   onPress?: (ev: EventOccurrence) => void;
+  onLongPress?: () => void;
   categoryLabel: string;
   color: string;
   timelineHeight?: number;
   appColors: { surface: string; label: string; labelSecondary: string; labelTertiary: string };
+  /** When provided (e.g. during drag), show these instead of ev.start_at/ev.end_at */
+  displayStartAt?: string;
+  displayEndAt?: string;
 }
 
-function EventBlock({ ev, onPress, categoryLabel, color, timelineHeight, appColors }: EventBlockProps) {
+function EventBlock({ ev, onPress, onLongPress, categoryLabel, color, timelineHeight, appColors, displayStartAt, displayEndAt }: EventBlockProps) {
+  const startAt = displayStartAt ?? ev.start_at;
+  const endAt = displayEndAt ?? ev.end_at;
   return (
     <Pressable
       style={[styles.block, { backgroundColor: appColors.surface }, timelineHeight != null && { minHeight: timelineHeight }]}
       onPress={() => onPress?.(ev)}
+      onLongPress={onLongPress}
     >
       <View style={[styles.blockStripe, { backgroundColor: color }]} />
       <View style={styles.blockBody}>
@@ -73,13 +85,244 @@ function EventBlock({ ev, onPress, categoryLabel, color, timelineHeight, appColo
         </View>
         <Text style={[styles.blockTitle, { color: appColors.label }]} numberOfLines={timelineHeight != null ? 3 : 2}>{ev.title}</Text>
         <Text style={[styles.blockTime, { color: appColors.labelSecondary }]}>
-          {ev.all_day ? 'All day' : `${formatTime(ev.start_at)} – ${formatTime(ev.end_at)}`}
+          {ev.all_day ? 'All day' : `${formatTime(startAt)} – ${formatTime(endAt)}`}
         </Text>
         {ev.notes && timelineHeight == null ? (
           <Text style={[styles.blockNotes, { color: appColors.labelTertiary }]} numberOfLines={2}>{ev.notes}</Text>
         ) : null}
       </View>
     </Pressable>
+  );
+}
+
+const SNAP_MINUTES = 15;
+const MIN_DURATION_MINUTES = 15;
+
+function snapToMinutes(m: number): number {
+  return Math.round(m / SNAP_MINUTES) * SNAP_MINUTES;
+}
+
+/** Build ISO string for the given day at minutes-from-midnight (0–1440). */
+function minutesToIso(selectedDate: Date, minutes: number): string {
+  const d = new Date(selectedDate);
+  d.setHours(0, 0, 0, 0);
+  d.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  return d.toISOString();
+}
+
+interface EditableTimedEventBlockProps {
+  ev: EventOccurrence;
+  topPx: number;
+  heightPx: number;
+  dateStr: string;
+  dayStartMinutes: number;
+  totalDayMinutes: number;
+  timelineHeightPx: number;
+  selectedDate: Date;
+  categoryLabel: string;
+  color: string;
+  appColors: { surface: string; label: string; labelSecondary: string; labelTertiary: string };
+  onUpdateEventTime: (ev: EventOccurrence, newStartAt: string, newEndAt: string) => Promise<void>;
+  /** When true, use full-width shared block styling (e.g. shared overlay row). */
+  sharedBlock?: boolean;
+  onDeleteEvent?: (ev: EventOccurrence) => void;
+}
+
+const SNAP = 15;
+
+function EditableTimedEventBlock({
+  ev,
+  topPx,
+  heightPx,
+  dateStr,
+  dayStartMinutes,
+  totalDayMinutes,
+  timelineHeightPx,
+  selectedDate,
+  categoryLabel,
+  color,
+  appColors,
+  onUpdateEventTime,
+  sharedBlock = false,
+  onDeleteEvent,
+}: EditableTimedEventBlockProps) {
+  const startM = getMinutesInDay(ev.start_at, dateStr);
+  const endM = getMinutesInDay(ev.end_at, dateStr);
+  const durationM = Math.max(MIN_DURATION_MINUTES, endM - startM);
+  const minutesPerPx = totalDayMinutes / timelineHeightPx;
+  const pxPerMin = timelineHeightPx / totalDayMinutes;
+
+  const translateY = useSharedValue(0);
+  const resizeDelta = useSharedValue(0);
+  const lastSnappedStartM = useSharedValue(startM);
+  const lastSnappedEndM = useSharedValue(endM);
+
+  const [liveStartAt, setLiveStartAt] = useState<string | null>(null);
+  const [liveEndAt, setLiveEndAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    translateY.value = 0;
+    resizeDelta.value = 0;
+    lastSnappedStartM.value = startM;
+    lastSnappedEndM.value = endM;
+    setLiveStartAt(null);
+    setLiveEndAt(null);
+  }, [ev.start_at, ev.end_at]);
+
+  const handleMoveEnd = useCallback(
+    (deltaPx: number) => {
+      hapticLight();
+      const deltaM = deltaPx * minutesPerPx;
+      let newStartM = snapToMinutes(startM + deltaM);
+      newStartM = Math.max(0, Math.min(1440 - durationM, newStartM));
+      const newEndM = newStartM + durationM;
+      const newStartAt = minutesToIso(selectedDate, newStartM);
+      const newEndAt = minutesToIso(selectedDate, newEndM);
+      setLiveStartAt(newStartAt);
+      setLiveEndAt(newEndAt);
+      onUpdateEventTime(ev, newStartAt, newEndAt);
+    },
+    [ev, startM, durationM, minutesPerPx, selectedDate, onUpdateEventTime]
+  );
+
+  const handleResizeEnd = useCallback(
+    (deltaPx: number) => {
+      hapticLight();
+      const deltaM = deltaPx * minutesPerPx;
+      let newEndM = snapToMinutes(endM + deltaM);
+      newEndM = Math.max(startM + MIN_DURATION_MINUTES, Math.min(1440, newEndM));
+      const newEndAt = minutesToIso(selectedDate, newEndM);
+      setLiveEndAt(newEndAt);
+      onUpdateEventTime(ev, ev.start_at, newEndAt);
+    },
+    [ev, startM, endM, minutesPerPx, selectedDate, onUpdateEventTime]
+  );
+
+  const updateLiveMove = useCallback(
+    (snappedStartM: number, snappedEndM: number) => {
+      setLiveStartAt(minutesToIso(selectedDate, snappedStartM));
+      setLiveEndAt(minutesToIso(selectedDate, snappedEndM));
+    },
+    [selectedDate]
+  );
+
+  const updateLiveResize = useCallback(
+    (snappedEndM: number) => {
+      setLiveEndAt(minutesToIso(selectedDate, snappedEndM));
+    },
+    [selectedDate]
+  );
+
+  const moveGesture = Gesture.Pan()
+    .activeOffsetY([-5, 5])
+    .failOffsetX([-25, 25])
+    .onStart(() => {
+      runOnJS(updateLiveMove)(startM, endM);
+    })
+    .onUpdate((e) => {
+      'worklet';
+      const deltaM = e.translationY * minutesPerPx;
+      let snappedStartM = Math.round((startM + deltaM) / SNAP) * SNAP;
+      snappedStartM = Math.max(0, Math.min(1440 - durationM, snappedStartM));
+      const snappedOffsetPx = (snappedStartM - startM) * pxPerMin;
+      translateY.value = snappedOffsetPx;
+      if (snappedStartM !== lastSnappedStartM.value) {
+        lastSnappedStartM.value = snappedStartM;
+        runOnJS(hapticLight)();
+        runOnJS(updateLiveMove)(snappedStartM, snappedStartM + durationM);
+      }
+    })
+    .onEnd((e) => {
+      const deltaM = e.translationY * minutesPerPx;
+      let snappedStartM = Math.round((startM + deltaM) / SNAP) * SNAP;
+      snappedStartM = Math.max(0, Math.min(1440 - durationM, snappedStartM));
+      runOnJS(handleMoveEnd)((snappedStartM - startM) * pxPerMin);
+    });
+
+  const resizeGesture = Gesture.Pan()
+    .activeOffsetY([-10, 10])
+    .onStart(() => {
+      runOnJS(updateLiveResize)(endM);
+    })
+    .onUpdate((e) => {
+      'worklet';
+      const deltaM = e.translationY * minutesPerPx;
+      let snappedEndM = Math.round((endM + deltaM) / SNAP) * SNAP;
+      snappedEndM = Math.max(startM + MIN_DURATION_MINUTES, Math.min(1440, snappedEndM));
+      const deltaPx = (snappedEndM - endM) * pxPerMin;
+      resizeDelta.value = deltaPx;
+      if (snappedEndM !== lastSnappedEndM.value) {
+        lastSnappedEndM.value = snappedEndM;
+        runOnJS(hapticLight)();
+        runOnJS(updateLiveResize)(snappedEndM);
+      }
+    })
+    .onEnd((e) => {
+      const deltaM = e.translationY * minutesPerPx;
+      let snappedEndM = Math.round((endM + deltaM) / SNAP) * SNAP;
+      snappedEndM = Math.max(startM + MIN_DURATION_MINUTES, Math.min(1440, snappedEndM));
+      runOnJS(handleResizeEnd)((snappedEndM - endM) * pxPerMin);
+    });
+
+  const resizeHandleHeight = 16;
+
+  const animatedContainerStyle = useAnimatedStyle(() => {
+    'worklet';
+    const height = Math.max(MIN_EVENT_HEIGHT_PX, heightPx + resizeDelta.value);
+    return { top: topPx, height };
+  });
+
+  const animatedMoveStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const displayStartAt = liveStartAt ?? undefined;
+  const displayEndAt = liveEndAt ?? undefined;
+
+  const liveHeightPx =
+    liveEndAt != null
+      ? (getMinutesInDay(liveEndAt, dateStr) - (liveStartAt != null ? getMinutesInDay(liveStartAt, dateStr) : startM)) * pxPerMin
+      : null;
+  const eventBlockHeight =
+    (liveHeightPx != null ? liveHeightPx : heightPx) - resizeHandleHeight;
+
+  const blockContainerStyle = sharedBlock ? styles.sharedTimedBlock : styles.timelineBlock;
+
+  return (
+    <Animated.View style={[blockContainerStyle, animatedContainerStyle, animatedMoveStyle]}>
+      <View style={styles.editableBlockWrap}>
+        <GestureDetector gesture={moveGesture}>
+          <View style={styles.editableBlockBody}>
+            <EventBlock
+              ev={ev}
+              categoryLabel={categoryLabel}
+              color={color}
+              timelineHeight={eventBlockHeight}
+              appColors={appColors}
+              displayStartAt={displayStartAt}
+              displayEndAt={displayEndAt}
+            />
+          </View>
+        </GestureDetector>
+        <GestureDetector gesture={resizeGesture}>
+          <View style={[styles.resizeHandle, { backgroundColor: color + '40' }]}>
+            <View style={[styles.resizeHandleLine, { backgroundColor: color }]} />
+          </View>
+        </GestureDetector>
+      </View>
+      {onDeleteEvent ? (
+        <Pressable
+          style={[styles.deleteEventBtn, { backgroundColor: appColors.surface }]}
+          onPress={() => {
+            hapticLight();
+            onDeleteEvent(ev);
+          }}
+          hitSlop={8}
+        >
+          <Ionicons name="trash-outline" size={18} color={appColors.labelSecondary} />
+        </Pressable>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -91,17 +334,27 @@ interface DayItineraryProps {
   accentColor?: string;
   onEventPress?: (ev: EventOccurrence) => void;
   showHeaders?: boolean;
+  editMode?: boolean;
+  onEditModeChange?: (value: boolean) => void;
+  onUpdateEventTime?: (ev: EventOccurrence, newStartAt: string, newEndAt: string) => Promise<void>;
+  onDeleteEvent?: (ev: EventOccurrence) => void;
 }
 
 export function DayItinerary({
   events,
   selectedDate,
-  accentColor = '#3B82F6',
+  accentColor: accentColorProp,
   onEventPress,
   showHeaders = true,
+  editMode = false,
+  onEditModeChange,
+  onUpdateEventTime,
+  onDeleteEvent,
 }: DayItineraryProps) {
   const { getCategoryById } = useCategories();
   const appColors = useAppColors();
+  const accentColor = accentColorProp ?? appColors.gradientFrom;
+  const emptyMsg = useEmptyStateMessage(EMPTY_DAY_ITINERARY);
 
   const {
     dateStr,
@@ -192,23 +445,57 @@ export function DayItinerary({
         })()
       : null;
 
+  const enterEditMode = useCallback(() => {
+    if (onEditModeChange && !editMode) {
+      hapticMedium();
+      onEditModeChange(true);
+    }
+  }, [onEditModeChange, editMode]);
+
   const renderTimelineColumn = (userId: UserId, placements: TimedEventPlacement[]) => (
     <View key={userId} style={[styles.timelineColumn, { height: timelineHeightPx }]}>
-      {placements.map(({ ev, topPx, heightPx }) => (
-        <View
-          key={ev.id + ev.occurrence_date}
-          style={[styles.timelineBlock, { top: topPx, height: heightPx }]}
-        >
-          <EventBlock
-            ev={ev}
-            onPress={onEventPress}
-            categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
-            color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
-            timelineHeight={heightPx}
-            appColors={appColors}
-          />
-        </View>
-      ))}
+      {placements.map(({ ev, topPx, heightPx }) => {
+        const canEdit =
+          editMode && onUpdateEventTime && !ev.recurrence_id && ev.user_id === 'adrian';
+
+        if (canEdit) {
+          return (
+            <EditableTimedEventBlock
+              key={ev.id + ev.occurrence_date}
+              ev={ev}
+              topPx={topPx}
+              heightPx={heightPx}
+              dateStr={dateStr}
+              dayStartMinutes={dayStartMinutes}
+              totalDayMinutes={totalDayMinutes}
+              timelineHeightPx={timelineHeightPx}
+              selectedDate={selectedDate}
+              categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
+              color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
+              appColors={appColors}
+              onUpdateEventTime={onUpdateEventTime}
+              onDeleteEvent={onDeleteEvent}
+            />
+          );
+        }
+
+        return (
+          <View
+            key={ev.id + ev.occurrence_date}
+            style={[styles.timelineBlock, { top: topPx, height: heightPx }]}
+          >
+            <EventBlock
+              ev={ev}
+              onPress={onEventPress}
+              onLongPress={enterEditMode}
+              categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
+              color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
+              timelineHeight={heightPx}
+              appColors={appColors}
+            />
+          </View>
+        );
+      })}
     </View>
   );
 
@@ -242,6 +529,7 @@ export function DayItinerary({
                   key={ev.id + ev.occurrence_date}
                   ev={ev}
                   onPress={onEventPress}
+                  onLongPress={enterEditMode}
                   categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
                   color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
                   appColors={appColors}
@@ -255,6 +543,7 @@ export function DayItinerary({
                   key={ev.id + ev.occurrence_date}
                   ev={ev}
                   onPress={onEventPress}
+                  onLongPress={enterEditMode}
                   categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
                   color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
                   appColors={appColors}
@@ -273,6 +562,7 @@ export function DayItinerary({
                     key={ev.id + ev.occurrence_date}
                     ev={ev}
                     onPress={onEventPress}
+                    onLongPress={enterEditMode}
                     categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
                     color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
                     appColors={appColors}
@@ -285,7 +575,11 @@ export function DayItinerary({
       )}
 
       {hasTimed ? (
-        <ScrollView style={styles.timelineScroll} showsVerticalScrollIndicator={true}>
+        <ScrollView
+          style={styles.timelineScroll}
+          showsVerticalScrollIndicator={true}
+          scrollEnabled={!editMode}
+        >
           <View style={[styles.timelineRow, { height: timelineHeightPx }]}>
             {/* Hour separator lines (behind content) */}
             {hourLabels.map((h) => (
@@ -317,21 +611,41 @@ export function DayItinerary({
               {renderTimelineColumn('sarah', timedSarah)}
               {timedShared.length > 0 && (
                 <View style={[styles.sharedTimedOverlay, { height: timelineHeightPx }]} pointerEvents="box-none">
-                  {timedShared.map(({ ev, topPx, heightPx }) => (
-                    <View
-                      key={ev.id + ev.occurrence_date}
-                      style={[styles.sharedTimedBlock, { top: topPx, height: heightPx }]}
-                    >
-                      <EventBlock
+                  {timedShared.map(({ ev, topPx, heightPx }) =>
+                    editMode && onUpdateEventTime && !ev.recurrence_id ? (
+                      <EditableTimedEventBlock
+                        key={ev.id + ev.occurrence_date}
                         ev={ev}
-                        onPress={onEventPress}
+                        topPx={topPx}
+                        heightPx={heightPx}
+                        dateStr={dateStr}
+                        dayStartMinutes={dayStartMinutes}
+                        totalDayMinutes={totalDayMinutes}
+                        timelineHeightPx={timelineHeightPx}
+                        selectedDate={selectedDate}
                         categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
                         color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
-                        timelineHeight={heightPx}
                         appColors={appColors}
+                        onUpdateEventTime={onUpdateEventTime}
+                        onDeleteEvent={onDeleteEvent}
+                        sharedBlock
                       />
-                    </View>
-                  ))}
+                    ) : (
+                      <View
+                        key={ev.id + ev.occurrence_date}
+                        style={[styles.sharedTimedBlock, { top: topPx, height: heightPx }]}
+                      >
+                        <EventBlock
+                          ev={ev}
+                          onPress={onEventPress}
+                          categoryLabel={getCategoryById(ev.category_id ?? null)?.name ?? ev.type}
+                          color={getCategoryById(ev.category_id ?? null)?.color ?? ev.color}
+                          timelineHeight={heightPx}
+                          appColors={appColors}
+                        />
+                      </View>
+                    )
+                  )}
                 </View>
               )}
             </View>
@@ -339,7 +653,7 @@ export function DayItinerary({
         </ScrollView>
       ) : !hasAllDay ? (
         <View style={styles.emptyState}>
-          <Text style={[styles.emptyColumnText, { color: appColors.labelTertiary }]}>Nothing scheduled</Text>
+          <Text style={[styles.emptyColumnText, { color: appColors.labelTertiary }]}>{emptyMsg.title}</Text>
         </View>
       ) : null}
     </View>
@@ -358,7 +672,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
+    paddingTop: 2,
+    paddingBottom: 2,
     borderBottomWidth: 2,
   },
   columnDot: { width: 6, height: 6, borderRadius: 3 },
@@ -425,6 +740,30 @@ const styles = StyleSheet.create({
     right: spacing.xs,
     borderRadius: radius.md,
     overflow: 'hidden' as const,
+  },
+  editableBlockWrap: { flex: 1, flexDirection: 'column' as const },
+  editableBlockBody: { flex: 1, minHeight: MIN_EVENT_HEIGHT_PX, overflow: 'hidden' as const, borderRadius: radius.md },
+  deleteEventBtn: {
+    position: 'absolute' as const,
+    top: spacing.xs,
+    right: spacing.xs,
+    width: 28,
+    height: 28,
+    borderRadius: radius.sm,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    zIndex: 10,
+    ...shadows.sm,
+  },
+  resizeHandle: {
+    height: 16,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  resizeHandleLine: {
+    width: 24,
+    height: 3,
+    borderRadius: 2,
   },
   emptyState: { paddingVertical: spacing.xl, alignItems: 'center' },
   emptyColumnText: { ...typography.footnote },

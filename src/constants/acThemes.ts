@@ -6,6 +6,7 @@ export type ACThemePattern = 'leaf' | 'mushroom' | 'flower' | 'star' | 'wave' | 
 
 export type ACThemeId =
   | 'default_ios'
+  | 'cozy_cream'
   | 'resident_services'
   | 'tom_nooks_shop'
   | 'nook_inc'
@@ -34,8 +35,11 @@ export interface ACThemeColors {
   labelSecondary: string;
   labelTertiary: string;
   labelQuaternary: string;
-  // Semantic
+  // Semantic — for status pills, badges, bubbles (themed for coziness)
   destructive: string;
+  success: string;
+  warning: string;
+  info: string;
   // Gradient pair for LinearGradient accents (from → to)
   gradientFrom: string;
   gradientTo: string;
@@ -93,6 +97,43 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       bgTint:          '#6B8EFF',
       bgTintOpacity:   0.04,
       destructive:     '#DC2626',
+      success:         '#22C55E',
+      warning:         '#D97706',
+      info:            '#3B82F6',
+    },
+  },
+
+  cozy_cream: {
+    id: 'cozy_cream',
+    name: 'Cozy',
+    emoji: '☕',
+    description: 'Warm cream and soft brown — comfortable and calm',
+    pattern: 'none',
+    patternEmoji: '',
+    colors: {
+      background:      '#F5F0E8',
+      surface:         '#FDFBF7',
+      surfaceElevated: '#FFFEFC',
+      surfaceSunken:   '#EDE6DC',
+      groupedBg:       '#F5F0E8',
+      tabBarBackground: 'rgba(253,251,247,0.92)',
+      tabBarBorder:    'rgba(140,110,80,0.16)',
+      separator:       'rgba(120,95,70,0.12)',
+      fill:            'rgba(120,95,70,0.06)',
+      fillSecondary:   'rgba(120,95,70,0.04)',
+      fillTertiary:    'rgba(120,95,70,0.02)',
+      label:           '#2C2419',
+      labelSecondary:  '#5C4A35',
+      labelTertiary:   '#8C7358',
+      labelQuaternary: '#C4B5A0',
+      gradientFrom:    '#B8956B',
+      gradientTo:      '#D4A574',
+      bgTint:          '#A08050',
+      bgTintOpacity:   0.06,
+      destructive:     '#C44C38',
+      success:         '#4A7C59',
+      warning:         '#B8956B',
+      info:            '#8B7355',
     },
   },
 
@@ -124,6 +165,9 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       bgTint:          '#C8922A',
       bgTintOpacity:   0.07,
       destructive:     '#DC2626',
+      success:         '#2E7D4A',
+      warning:         '#D4921A',
+      info:            '#A85C20',
     },
   },
 
@@ -155,6 +199,9 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       bgTint:          '#2E8B3A',
       bgTintOpacity:   0.08,
       destructive:     '#DC2626',
+      success:         '#2E8B3A',
+      warning:         '#B8860B',
+      info:            '#268E6A',
     },
   },
 
@@ -186,6 +233,9 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       bgTint:          '#0EA5C8',
       bgTintOpacity:   0.09,
       destructive:     '#DC2626',
+      success:         '#0D9488',
+      warning:         '#F59E0B',
+      info:            '#0EA5C8',
     },
   },
 
@@ -217,6 +267,9 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       bgTint:          '#EAA800',
       bgTintOpacity:   0.09,
       destructive:     '#DC2626',
+      success:         '#65A30D',
+      warning:         '#EAA800',
+      info:            '#CA8A04',
     },
   },
 
@@ -248,6 +301,9 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       bgTint:          '#8052D8',
       bgTintOpacity:   0.08,
       destructive:     '#DC2626',
+      success:         '#7C3AED',
+      warning:         '#A78BFA',
+      info:            '#8052D8',
     },
   },
 
@@ -279,6 +335,9 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       bgTint:          '#3C50CC',
       bgTintOpacity:   0.08,
       destructive:     '#DC2626',
+      success:         '#059669',
+      warning:         '#D97706',
+      info:            '#3C50CC',
     },
   },
 
@@ -310,6 +369,9 @@ export const AC_THEMES: Record<ACThemeId, ACTheme> = {
       bgTint:          '#1E9958',
       bgTintOpacity:   0.09,
       destructive:     '#DC2626',
+      success:         '#1E9958',
+      warning:         '#B45309',
+      info:            '#0D9488',
     },
   },
 
@@ -319,6 +381,7 @@ export const DEFAULT_THEME_ID: ACThemeId = 'default_ios';
 
 export const AC_THEME_ORDER: ACThemeId[] = [
   'default_ios',
+  'cozy_cream',
   'resident_services',
   'tom_nooks_shop',
   'nook_inc',

@@ -76,12 +76,12 @@ export function playCheck(): void {
   play('check');
 }
 
-/** Play when an order is set to Pending. */
-export function playOrderPending(): void {
+/** Play when an order is created (in progress). */
+export function playOrderInProgress(): void {
   play('order_pending');
 }
 
-/** Play when an order is set to Complete. */
+/** Play when an order is set to Complete (legacy / edit flow). */
 export function playOrderComplete(): void {
   play('order_complete');
 }

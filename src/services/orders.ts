@@ -46,5 +46,5 @@ export async function updateOrderStatus(id: string, status: OrderStatus): Promis
 }
 
 export async function archiveOrder(id: string): Promise<Order> {
-  return updateOrder(id, { archived: true });
+  return updateOrder(id, { archived: true, status: 'Complete' });
 }

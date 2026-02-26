@@ -24,6 +24,7 @@ import type { ParsedShift, ImportEventType } from '@/types';
 import { Button } from '@/components/ui/Button';
 import { playTrash } from '@/utils/sounds';
 import { spacing, typography, colors, radius, shadows } from '@/theme';
+import { useAppColors } from '@/contexts/ThemeContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -448,7 +449,7 @@ export function EditableEventList({
   onEventsChange,
   onConfirm,
   onCancel,
-  accentColor = '#3B82F6',
+  accentColor,
   loading = false,
 }: Props) {
   const selectedCount = events.filter(e => e.selected).length;
